@@ -41,7 +41,9 @@ Supports Xbox, PlayStation and Switch controllers, with hot plugging and rumble.
 Clone this repository using [Git](https://git-scm.com/).
 
 ### 2. Add the Required Game Files
-Place your extracted game data files in the `assets` folder. `default.xbe` must be there, with `DATA` and `EAGLRM.O` beside it, or put the disc image (.iso) there and extract only `default.xbe` with `python tools\xiso.py extract <image.iso> assets /DEFAULT.XBE`.
+Extract the whole disc into the `assets` folder: `python tools\xiso.py extract <image.iso> assets`. `default.xbe` must be there, with `DATA` and `EAGLRM.O` beside it. The build checks that `default.xbe` is the USA release (SHA-1 `f194e90b50f9f2a5259ed941971b0b4c11583eee`).
+
+Extract all of it, not only `default.xbe`: with `default.xbe` in `assets` the game reads its files from that folder, and a disc image beside it is not used.
 
 ### 3. Install Dependencies
 Install Visual Studio 2022 with **Desktop development with C++**, **C++ Clang tools for Windows** and **C++ CMake tools for Windows** (`build.bat` offers to add the last two).
