@@ -174,6 +174,8 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 - [ ] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers); hot plug
 - [x] Rumble (`XInputSetState`): high-byte fix in place (§7); idle is silent (confirmed in the playtest)
 - [ ] Memory unit enumeration (`XPP_MemoryUnitType`) reports none/empty without crashing
+- [x] Keyboard and mouse (`src/common/pc_input.*`, a PC addition): keys and mouse buttons as the controller on port 0 (connected without a controller), rebindable in `mohea.toml` `[keys]`; cursor hidden and held at the window's centre while the game has the focus
+- [x] Mouse look (`src/game/controls.cpp`): the mouse's motion each frame is added as an angle to the player's turn (`sub_001149E0` yaw, `sub_00114B60` pitch), past the stick's dead zones, the look handler's clamp, response curve and flick halving. Verified on foot, aiming down sights and on mounted weapons (2026-10-27); the controller keeps its own feel. The input chain is written up at the top of `controls.cpp`; `MOHEA_WATCH=actions` (`src/game/watch.cpp`) is the data-breakpoint tool that found it
 - [x] Milestone **M4**: navigate the main menu with a controller
 
 ## 13. Saves, settings, storage
