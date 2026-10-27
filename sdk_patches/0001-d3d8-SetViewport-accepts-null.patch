@@ -1,0 +1,21 @@
+D3DDevice_SetViewport(NULL) sets the device's current viewport again with the scissors off, as the library does
+(its NULL path: SetScissors(0, 0, 0), then the stored viewport pushed again). The HLE read the viewport from address 0.
+Medal of Honor: European Assault's D3DDevice_SetBackBufferScale calls it with NULL during its first frame setup.
+
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 5178584..8def19b 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -655,10 +655,11 @@ HLE_STDCALL(D3DDevice_CopyRects, 5) {
+     return 0;
+ }
+ 
++// null sets the viewport the device has again, scissors off: the library's SetBackBufferScale does after a scale change
+ HLE_STDCALL(D3DDevice_SetViewport, 1) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     uint32_t v = a[0];
+-    g_state.viewport = {R32(v), R32(v + 4), R32(v + 8), R32(v + 12), GF(v + 16), GF(v + 20)};
++    if (v) g_state.viewport = {R32(v), R32(v + 4), R32(v + 8), R32(v + 12), GF(v + 16), GF(v + 20)};
+     g_state.scissor_count = 0;
+     UpdateViewportConstants();
+     return 0;

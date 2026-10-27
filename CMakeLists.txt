@@ -19,6 +19,24 @@ else()
     FetchContent_MakeAvailable(xbe_sdk)
     set(SDK ${xbe_sdk_SOURCE_DIR})
 endif()
+
+# our fixes to the SDK, applied to its checkout in name order; one already in it is left alone
+find_package(Git REQUIRED)
+file(GLOB SDK_PATCHES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/sdk_patches/*.patch)
+list(SORT SDK_PATCHES)
+foreach(patch ${SDK_PATCHES})
+    get_filename_component(patch_name ${patch} NAME)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${SDK} apply -R --check ${patch} RESULT_VARIABLE applied
+                    OUTPUT_QUIET ERROR_QUIET)
+    if(NOT applied EQUAL 0)
+        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${SDK} apply ${patch} RESULT_VARIABLE failed ERROR_VARIABLE why)
+        if(failed)
+            message(FATAL_ERROR "sdk_patches/${patch_name} does not apply to ${SDK}: update the patch for this SDK\n${why}")
+        endif()
+        message(STATUS "SDK patch applied: ${patch_name}")
+    endif()
+endforeach()
+
 include(${SDK}/cmake/XbeRecomp.cmake)
 
 file(GLOB XBE_HOST_SOURCES CONFIGURE_DEPENDS src/*/*.cpp)
