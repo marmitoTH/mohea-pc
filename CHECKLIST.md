@@ -51,7 +51,10 @@ end of this file.
 - [x] `src/common/game_info.cpp`: MOHEA names, `mohea.toml`, `mohea` log prefix (the §6 basics)
 - [x] `tools/xiso.py`: `list` / `info` / `extract` for the disc image (in Git Bash, set `MSYS_NO_PATHCONV=1` so `/DEFAULT.XBE` isn't rewritten)
 - [x] `cmake --preset release` configures: Zydis, toml++, Dear ImGui and SDL3 fetched into `out/build/release/_deps`
-- [ ] Decide how we carry **SDK fixes** (first one: `D3DDevice_SetViewport(NULL)` in `sdk/runtime/xdk/d3d8.cpp`, uncommitted in the submodule): a fork as the submodule, patches applied by the build, and/or upstream PRs
+- [x] **SDK fixes are patches in this repo**: `sdk/` stays pinned to upstream; `sdk_patches/NNNN-*.patch` (a short explanation above the diff, LF endings) are applied by `CMakeLists.txt` at configure time, in name order, each skipped when already in the checkout, a clear error when one no longer applies. `.gitmodules` has `ignore = dirty` so the patched submodule does not show as changed
+  - New patch: edit under `sdk/`, then `git -C sdk diff > sdk_patches/NNNN-name.patch` (add the explanation on top)
+  - On an SDK update: revert `sdk/` (`git -C sdk checkout .`), move the submodule, reconfigure, refresh any patch that fails
+  - `0001-d3d8-SetViewport-accepts-null.patch`: the §7 boot fix
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`
