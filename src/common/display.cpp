@@ -7,6 +7,10 @@
 #endif
 #include <windows.h>
 
+#include <chrono>
+
+#include <imgui.h>
+
 #include "common/display.h"
 
 #include "app/app.h"
@@ -39,9 +43,14 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
+// a notice in the corner for a moment after F9: the frame rate it switched to
+using clock = std::chrono::steady_clock;
+clock::time_point g_notice_until{};
+
 // F9: 30 or 60 frames a second in game (game/frame_rate.cpp), to compare the two
 void ToggleFrameRate() {
     g_sixty_fps = !g_sixty_fps;
+    g_notice_until = clock::now() + std::chrono::seconds(2);
     LOGR("frame rate: %d in game", g_sixty_fps ? 60 : 30);
     app::Save();
 }
@@ -80,6 +89,16 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
             break;
     }
     return false;
+}
+
+void Ui() {
+    if (clock::now() >= g_notice_until) return;
+    const char* text = g_sixty_fps ? "60 FPS" : "30 FPS";
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    float size = ImGui::GetFontSize() * 2.0f;
+    ImVec2 at(24.0f, 24.0f);
+    draw->AddText(ImGui::GetFont(), size, ImVec2(at.x + 2, at.y + 2), IM_COL32(0, 0, 0, 200), text);
+    draw->AddText(ImGui::GetFont(), size, at, IM_COL32(255, 255, 255, 255), text);
 }
 
 }  // namespace display

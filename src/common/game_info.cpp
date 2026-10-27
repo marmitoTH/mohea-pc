@@ -44,7 +44,7 @@ const app::GameInfo app::kGame = {
     .loaded = nullptr,                            // image in memory, before its entry point runs
     .window = pc_input::Window,                   // the game window is up
     .message = Message,                           // window messages first; true takes one
-    .ui = nullptr,                                // ImGui drawing each frame
+    .ui = [](double) { display::Ui(); },          // ImGui drawing each frame
     .pad = pc_input::Pad,                         // changes a polled pad
     .rumble = Rumble,                             // changes a rumble before it is set
 };
