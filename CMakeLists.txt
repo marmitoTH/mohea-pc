@@ -60,6 +60,13 @@ endif()
 # target name = GAME_EXE in build.bat, xbe = GAME_XBE
 add_xbe_image(MOHEA default.xbe game.toml ${GAME_PARTITIONS} game)
 
+# dev builds: the game code DLL gets a PDB too, so a host address in it resolves to its generated line, which names
+# the guest instruction (llvm-symbolizer --obj=MOHEA.dll --relative-address <rva>). Both binaries are named MOHEA and
+# the clang driver picks the PDB's name, so MOHEA.pdb is whichever linked last: right after a full build, the DLL's
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    target_link_options(MOHEA_code PRIVATE -g)
+endif()
+
 # a relinked executable over a DLL ninja found current: without a stamp the DLL must be newer than the executable, or
 # its first start compiles the game code again
 add_custom_command(TARGET MOHEA POST_BUILD
