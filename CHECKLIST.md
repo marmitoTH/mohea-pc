@@ -65,13 +65,22 @@ end of this file.
 
 ## 4. XDK symbol matching (`xbe_symbols`)
 
-- [ ] Run `build.bat` (first run calls `xbe_symbols assets\default.xbe sdk\xdk --library MOHEA.dll --out config\game.toml`); confirm it picks `xdk/5849`
-- [ ] Review the printed **misses and ambiguous names**: each is left `= 0` and becomes a *trapping stub*. FH still had ~50 zeros, which is normal when the game never calls a function.
-- [ ] Write the flat PE for Ghidra: `python sdk/tools/symbols/xbe2pe.py config/game.toml mohea.exe`
-- [ ] For each miss the game **does** call (D3D, DSound streams, XAPI save/file, crt math): find it in Ghidra and fill in the address by hand
-- [ ] Check `[data]` (`D3D_Device`, `D3D_pDevice`, `D3D_RenderState`, `D3D_DirtyFlags`, `D3D_Streams`, `DSound_StreamVtable*`, `XPP_GamepadType`, `XPP_MemoryUnitType`…). Every entry must be non-zero or proven unused.
-- [ ] Check whether any library was built with LTCG (register arguments); if so, fill `[abi]`
-- [ ] Commit `config/game.toml` (addresses only, no game code)
+- [x] Ran `xbe_symbols assets\default.xbe sdk\xdk --library MOHEA.dll --out config\game.toml` (built alone with `cmake --build out\build\release --target xbe_symbols`); it picked `xdk/5849`, entry `0x1EF095`, `code_sections = [.text, D3D, DSOUND, XGRPH, XPP]` (`DOLBY` left out)
+- [x] Result: 127 of 243 functions, 10 of 12 data. The one ambiguous name (`IDirectSoundBuffer_SetFilter`) and 4 others were resolved through `.XTLID`
+- [x] Reviewed the 116 misses. **113 are not linked into this XBE**:
+  - Network (XNet, XOnline, Winsock): no such libraries. Bink: not used (VP6 movies)
+  - DSound: every miss with an XTLID id is absent from the XBE's `.XTLID` (154 entries). `DirectSoundCreateStream` is absent, so the `CDirectSoundStream_*` functions and both `DSound_StreamVtable*` data symbols are unused: **the game uses no DSound streams**
+  - D3D misses with signatures: none of the 33 unnamed D3D functions the game calls look like them (no `LoadVertexShaderProgram` 0x1E9C, `SwitchTexture`, `GetRenderTarget2` 0x1A04 or `DrawVerticesUP` pattern)
+  - CRT `sin`/`cos`/`tan`/`atan`/`sqrt`/`log`/`log10`: not linked. The `fsin`/`fcos` stubs at `0x2B1345..0x2B13AA` are **EA's degree-based float helpers** (×π/180), recompiled as plain x87
+- [x] **3 real misses, filled in by hand** (the SDK has no signature for them), commented in `config/game.toml`:
+  - `D3DDevice_BeginPush = 0x2DDEB0`, `D3DDevice_EndPush = 0x2DDED0`: **EAGL draws through raw push-buffer commands** (`BEGIN_END` + `INLINE_ARRAY`; 4 BeginPush calls at `0x1D0CFC`…, 5 EndPush calls). The SDK's `RunCommands` handles exactly that
+  - `D3DDevice_SetPalette = 0x2D9200`: 9 calls, so **P8 palettized textures are used**
+- [x] Unnamed library code the game calls runs as recompiled guest code by design: D3D functions that write the push buffer (e.g. `SetVertexData2f/4f/Color`, the clear values at `0x2DDE40`) are read by the SDK's push-buffer walk; XPP's `XGetDevices`/`XGetDeviceChanges`/MU mounting read the `XPP_*Type` data the SDK fills; XInput core is matched
+- [x] `[data]`: 10 of 12 named; only the two unused `DSound_StreamVtable*` are 0
+- [x] `[abi]`: empty; `xbe_symbols` reported no changed conventions (no LTCG libraries)
+- [x] Flat PE for Ghidra: `python sdk/tools/symbols/xbe2pe.py config/game.toml out/ghidra/mohea.exe` (130 exports now; rerun after §5 to export every `sub_XXXXXXXX`)
+- [x] Commit `config/game.toml` (addresses only, no game code)
+- Watch in §7/§9: EAGL's EndPush path. The SDK drops pushed vertex-array draws (methods 0x1720–0x1817) with a log line, and stops at non-method headers
 
 ## 5. First recompile (analysis + codegen)
 
@@ -115,7 +124,8 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 - [ ] Milestone **M2**: first frame presented (EA logo, then THX `.vp6`, or `DATA/LOADING/START_US.XSH` loading screen)
 - [ ] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`)
 - [ ] Pixel shaders (`*__EAGLMicroCodePS`): check the pixel combiner translation covers them (env-maps, gloss, lightmaps, refractive, alpha maps)
-- [ ] Check whether EAGL writes the **push buffer directly** (raw NV2A methods, `D3DDevice_BeginPush`/`EndPush`, `RunPushBuffer`, or writes through `CDevice_Push`). If so, those paths need HLE support or a game hook.
+- [x] EAGL writes the **push buffer directly**: yes, through `BeginPush`/`EndPush` (named in §4; the SDK's EndPush runs `BEGIN_END` + `INLINE_ARRAY` draws)
+- [ ] Verify at run time that nothing EAGL pushes is dropped (log lines `d3d: pushed commands ...` / `EndPush primitive ... dropped`)
 - [ ] Textures (`.xsh`): swizzled/compressed Xbox formats decode correctly; palettes (P8) if used
 - [ ] Render targets / back buffer / depth formats, `D3DDevice_Swap`/`Present`, VBlank waits (`BlockUntilVerticalBlank`), gamma ramp
 - [ ] Frame pacing: lock to the game's native rate (verify 30 vs 60 Hz) so game logic tied to VBlank/frame count runs at the right speed
@@ -129,7 +139,7 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 
 ## 11. Audio
 
-- [ ] DirectSound HLE → XAudio2: buffers, **streams** (`CDirectSoundStream_*`), mix bins, Xbox ADPCM
+- [ ] DirectSound HLE → XAudio2: buffers, mix bins, Xbox ADPCM. **No DSound streams**: `DirectSoundCreateStream` is not linked (§4), so EA's streamed audio goes through buffers
 - [ ] `DOLBY` section = DSP effects image: confirm the upstream SDK's `dsp_image` support loads it (or stub it cleanly)
 - [ ] EA audio formats (`.abk` banks, `.ast`/`.mus` streams, `.mpf` music controller, `.bus`, `audiofx0.fx`) are parsed by game code; check they reach DSound and play at the right pitch/rate
 - [ ] Milestone **M3**: front-end music and menu SFX play
