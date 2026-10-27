@@ -10,6 +10,7 @@
 #include "common/display.h"
 
 #include "app/app.h"
+#include "common/options.h"
 #include "core/log.h"
 
 namespace display {
@@ -38,6 +39,13 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
+// F9: 30 or 60 frames a second in game (game/frame_rate.cpp), to compare the two
+void ToggleFrameRate() {
+    g_sixty_fps = !g_sixty_fps;
+    LOGR("frame rate: %d in game", g_sixty_fps ? 60 : 30);
+    app::Save();
+}
+
 }  // namespace
 
 bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
@@ -46,6 +54,11 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
         case WM_KEYDOWN:
             if (wp == VK_F11) {
                 if (first) Toggle();
+                *result = 0;
+                return true;
+            }
+            if (wp == VK_F9) {
+                if (first) ToggleFrameRate();
                 *result = 0;
                 return true;
             }

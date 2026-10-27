@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "common/display.h"
+#include "common/options.h"
 #include "common/pc_input.h"
 
 namespace {
@@ -35,7 +36,8 @@ const app::GameInfo app::kGame = {
                L"with its DATA folder and EAGLRM.O beside it.",
     .images = {{"default.xbe", "MOHEA"}},         // each recompiled xbe and its exe, for title launches
     .options = {{"mouse_sensitivity", nullptr, &pc_input::g_mouse_sensitivity},  // game settings kept in the
-                {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr}},      // settings file
+                {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
+                {"sixty_fps", &g_sixty_fps, nullptr}},
     .load = pc_input::Load,                       // reads more from the settings file's toml::table
     .save = pc_input::Save,                       // writes more into it
     .init = Init,                                 // after the settings load, before the window and boot
