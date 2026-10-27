@@ -21,4 +21,9 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
 // a polled controller: the keys and the mouse merged into port 0, which is connected without a controller too
 void Pad(int port, input::Pad& pad);
 
+// direct look, once a frame from the game's look handler: the mouse's motion since the last call as the view's turn,
+// radians, right and up positive; 0 when the game window is not active. While the game calls it the mouse no longer
+// moves the right stick
+void TakeLook(float& yaw, float& pitch);
+
 }  // namespace pc_input

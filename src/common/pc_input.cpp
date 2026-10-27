@@ -103,6 +103,14 @@ constexpr auto kRateWindow = std::chrono::milliseconds(25);
 constexpr float kFullStickCountsPerSecond = 800.0f;
 constexpr float kStickOffset = 8000.0f;
 
+// direct look (game/controls.cpp): the counts since the game last took them, and when it last did; while it takes
+// them the mouse leaves the right stick alone
+std::atomic<int> g_look_x{0}, g_look_y{0};
+std::atomic<int64_t> g_direct_until{0};
+constexpr auto kDirectHold = std::chrono::milliseconds(250);
+// the view's turn per count at 100%, radians: 0.057 degrees, 45 degrees for an inch at 800 counts an inch
+constexpr float kRadiansPerCount = 0.001f;
+
 struct KeyName {
     const char* name;
     int key;
@@ -248,6 +256,8 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
             Capture(hwnd, true);
             std::lock_guard lock(g_lock);
             g_motion[g_motion_next++ % kMotionSlots] = {clock::now(), raw.data.mouse.lLastX, raw.data.mouse.lLastY};
+            g_look_x += raw.data.mouse.lLastX;
+            g_look_y += raw.data.mouse.lLastY;
             break;
         }
         case WM_MOUSEWHEEL:
@@ -307,9 +317,19 @@ void Pad(int port, input::Pad& pad) {
     if (float y = keys_axis(kMoveBack, kMoveForward)) pad.ly = Axis(y * 32767.0f);
     if (float x = keys_axis(kLookLeft, kLookRight)) pad.rx = Axis(x * 32767.0f);
     if (float y = keys_axis(kLookDown, kLookUp)) pad.ry = Axis(y * 32767.0f);
-    // the mouse's y grows downwards, the stick's upwards
+    // the mouse's y grows downwards, the stick's upwards; not while the game takes the mouse as direct look
+    if (Ticks(now) < g_direct_until.load()) return;
     pad.rx = Axis(float(pad.rx) + Stick(rate_x));
     pad.ry = Axis(float(pad.ry) + Stick(g_invert_mouse_y ? rate_y : -rate_y));
+}
+
+void TakeLook(float& yaw, float& pitch) {
+    g_direct_until = Ticks(clock::now() + kDirectHold);
+    int x = g_look_x.exchange(0), y = g_look_y.exchange(0);
+    if (!Active()) return;
+    float k = kRadiansPerCount * float(g_mouse_sensitivity) / 100.0f;
+    yaw = float(x) * k;
+    pitch = float(g_invert_mouse_y ? y : -y) * k;
 }
 
 }  // namespace pc_input
