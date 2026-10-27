@@ -84,13 +84,21 @@ end of this file.
 
 ## 5. First recompile (analysis + codegen)
 
-- [ ] `cmake --build out\build\release` until `generated/game/*` is produced and compiles (first build can take 30–90 min)
-- [ ] Fix analysis gaps reported or found later at run time:
+- [x] `cmake --build out\build\release`: recompile + compile + link in **~1 minute** on this machine, exit 0
+  - Analysis: 732 direct functions, +6777 pointer seeds (1650 rejected), +6739 gap fill → **22,759 functions, 900,275 instructions**, 2,882,214 of 3,069,352 code bytes (94%), **473 jump tables**, 13 callback entries, no C++ EH
+  - 146 MB of C++ in `generated/game` (64 partitions)
+  - Warnings: 77, all in third-party Dear ImGui (`-Wnontrivial-memcall`, `-Wdeprecated-declarations`); none in generated or our code
+- [x] **19 overlapping decodes** reviewed: all harmless; none of the functions involved is called from generated code
+  - `.text 0x8000D..0x80065`: the real `sub_0007FCA0` is decoded whole; pointer seeds made bogus entries `sub_0008000F` / `sub_00080061` / `sub_00080063` / `sub_00080065` mid-instruction
+  - `D3D sub_002E77EF`: a float table decoded as code; `DSOUND sub_002F46FF`: `00 00` data decoded as code
+  - Not marked as `data_ranges` (exact table extents unknown, nothing gained at run time)
+- [ ] Fix analysis gaps found at run time (they only show when the game reaches them):
   - [ ] `[functions]` / `[[function]]` for entries reached only indirectly (FH needed 3, including its job thread `sub_00068D90`; expect EAGL render-method callbacks, thread entry points and vtables here)
   - [ ] `[[switch]]` for wrong jump-table targets
   - [ ] `[xbe] data_ranges` for data embedded in code sections
-- [ ] Check the `DOLBY` section (flags `0x26`, the DSP effects image) is **not** treated as code; only `.text`, `D3D`, `DSOUND`, `XGRPH`, `XPP` should be in `code_sections`
-- [ ] Link `MOHEA.exe` + `MOHEA.dll`
+- [x] `DOLBY` (the DSP effects image) is **not** code: `code_sections = [.text, D3D, DSOUND, XGRPH, XPP]`
+- [x] Linked `out/build/release/MOHEA.exe` (5.2 MB) + `MOHEA.dll` (12.8 MB, the recompiled game)
+- [x] Ghidra PE regenerated with every recompiled function: `out/ghidra/mohea.exe`, 22,759 exports
 
 ## 6. Minimal `app::kGame` (`src/common/game_info.cpp`)
 
