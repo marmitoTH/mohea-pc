@@ -313,12 +313,22 @@ void Pad(int port, input::Pad& pad) {
     for (int i = 0; i < 8; i++)
         if (held[kA + i]) pad.analog[i] = 0xFF;
 
-    // keys move the left stick fully over what the controller has; the mouse adds to the right stick
+    // keys push a stick fully over what the controller has, a diagonal as far as a controller's stick goes there: an
+    // Xbox 360 pad's left stick pushed into a diagonal reads about 25900 an axis, 1.10 to 1.14 times a straight push
+    // (both axes at full, 1.41, ran faster than straight; 1.0 ran slower: the game's stick shaping and its walk and
+    // run thresholds go by each axis); the mouse adds to the right stick
+    constexpr float kDiagonal = 1.12f;
     auto keys_axis = [&](Target neg, Target pos) { return float(held[pos]) - float(held[neg]); };
-    if (float x = keys_axis(kMoveLeft, kMoveRight)) pad.lx = Axis(x * 32767.0f);
-    if (float y = keys_axis(kMoveBack, kMoveForward)) pad.ly = Axis(y * 32767.0f);
-    if (float x = keys_axis(kLookLeft, kLookRight)) pad.rx = Axis(x * 32767.0f);
-    if (float y = keys_axis(kLookDown, kLookUp)) pad.ry = Axis(y * 32767.0f);
+    auto keys_stick = [&](Target left, Target right, Target down, Target up, int16_t& x, int16_t& y) {
+        float kx = keys_axis(left, right), ky = keys_axis(down, up);
+        if (kx == 0.0f && ky == 0.0f) return;
+        float length = kx != 0.0f && ky != 0.0f ? kDiagonal : 1.0f;
+        float scale = 32767.0f * length / std::sqrt(kx * kx + ky * ky);
+        x = Axis(kx * scale);
+        y = Axis(ky * scale);
+    };
+    keys_stick(kMoveLeft, kMoveRight, kMoveBack, kMoveForward, pad.lx, pad.ly);
+    keys_stick(kLookLeft, kLookRight, kLookDown, kLookUp, pad.rx, pad.ry);
     // the mouse's y grows downwards, the stick's upwards; not while the game takes the mouse as direct look
     if (Ticks(now) < g_direct_until.load()) return;
     pad.rx = Axis(float(pad.rx) + Stick(rate_x));
