@@ -57,9 +57,11 @@ end of this file.
 
 - [x] Extract `DEFAULT.XBE` to `assets/default.xbe` (`build.bat` refuses to run without it, and CMake hashes it at configure time)
 - [x] SHA-1 matches `f194e90b50f9f2a5259ed941971b0b4c11583eee`
-- [ ] Add that SHA-1 check to `build.bat` (FH's installer checks its XBE this way)
-- [ ] Provide the data for the runtime: **either** copy the `.iso` into `assets/` (the SDK runs from a whole disc dump *or* a game-partition ISO, which is ours) **or** extract `DATA/` and `EAGLRM.O` beside `default.xbe`
-- [ ] Confirm the runtime resolves case-insensitively (`DEFAULT.XBE`/`default.xbe`, `D:\DATA\LOADING\START.XSH` vs on-disk casing)
+- [x] SHA-1 check in `build.bat` (`GAME_SHA1`, via `certutil`): stops the build with both hashes on another release; tested with the real XBE and a modified copy
+- [x] Whole disc extracted to `assets/` (`DATA/`, `EAGLRM.O`, `default.xbe`; 394 files, 1.7 GB, sizes verified against the image)
+  - Why not the ISO: `app::FindGame` (`sdk/runtime/app/game_files.cpp`) tries `assets/default.xbe` first and, when it matches, uses the `assets` folder as `D:` and mounts no image. The build needs `default.xbe` in `assets`, so a dev tree must have the data extracted. The ISO route is for release players, who have no `default.xbe` there.
+- [x] Case-insensitive paths: host folders go through `MatchCase` (`sdk/runtime/kernel/files.cpp`), disc images through `Disc::Find` ("any case")
+- Hard disk: `MountDefaults` maps `\Device\Harddisk0\Partition1..5` to `E`, `C`, `X`, `Y`, `Z` folders under the data dir; check where XAPI's `T:`/`U:` land in §7
 
 ## 4. XDK symbol matching (`xbe_symbols`)
 
