@@ -3,6 +3,8 @@ setlocal
 set "GAME_TITLE=Medal of Honor European Assault"
 set "GAME_XBE=default.xbe"
 set "GAME_EXE=MOHEA"
+rem the release config\game.toml was made from: Medal of Honor European Assault (USA), title 4541005E
+set "GAME_SHA1=f194e90b50f9f2a5259ed941971b0b4c11583eee"
 title %GAME_TITLE% - Build
 cd /d "%~dp0"
 echo.
@@ -16,6 +18,10 @@ set "VSWHERE=%VSINST%\vswhere.exe"
 set "OUT=%CD%\out\build\release"
 
 if not exist assets\%GAME_XBE% goto :nogame
+set "XBE_SHA1="
+for /f "skip=1 tokens=*" %%h in ('certutil -hashfile assets\%GAME_XBE% SHA1') do if not defined XBE_SHA1 set "XBE_SHA1=%%h"
+set "XBE_SHA1=%XBE_SHA1: =%"
+if /i not "%XBE_SHA1%"=="%GAME_SHA1%" goto :wronggame
 
 rem toolchain
 echo [1/3] Toolchain
@@ -99,6 +105,12 @@ goto :fail
 echo   Put the full game files in the assets folder first:
 echo     %CD%\assets
 echo   It needs %GAME_XBE% with the game's folders beside it.
+goto :fail
+
+:wronggame
+echo   assets\%GAME_XBE% is not the release this port is made for.
+echo     sha1 %XBE_SHA1%
+echo     need %GAME_SHA1% (Medal of Honor European Assault, USA)
 goto :fail
 
 :fail
