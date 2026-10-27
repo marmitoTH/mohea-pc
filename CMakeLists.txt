@@ -37,3 +37,9 @@ endif()
 
 # target name = GAME_EXE in build.bat, xbe = GAME_XBE
 add_xbe_image(MOHEA default.xbe game.toml ${GAME_PARTITIONS} game)
+
+# a relinked executable over a DLL ninja found current: without a stamp the DLL must be newer than the executable, or
+# its first start compiles the game code again
+add_custom_command(TARGET MOHEA POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${XBE_COMPILER_DIR}/work/MOHEA/built.txt
+    COMMAND ${CMAKE_COMMAND} -E touch_nocreate ${CMAKE_BINARY_DIR}/MOHEA.dll)
