@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "common/display.h"
 #include "common/pc_input.h"
 
 namespace {
@@ -14,6 +15,11 @@ void Rumble(int, uint16_t& left, uint16_t& right) {
 // the runtime only reads the settings file: written back once loaded, it shows every setting with its default,
 // the key bindings among them, to change by hand
 void Init() { app::Save(); }
+
+// the full screen keys first, then the keyboard and mouse
+bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
+    return display::Message(hwnd, msg, wp, lp, result) || pc_input::Message(hwnd, msg, wp, lp, result);
+}
 
 }  // namespace
 
@@ -35,7 +41,7 @@ const app::GameInfo app::kGame = {
     .init = Init,                                 // after the settings load, before the window and boot
     .loaded = nullptr,                            // image in memory, before its entry point runs
     .window = pc_input::Window,                   // the game window is up
-    .message = pc_input::Message,                 // window messages first; true takes one
+    .message = Message,                           // window messages first; true takes one
     .ui = nullptr,                                // ImGui drawing each frame
     .pad = pc_input::Pad,                         // changes a polled pad
     .rumble = Rumble,                             // changes a rumble before it is set

@@ -154,6 +154,8 @@ int64_t Ticks(clock::time_point t) { return t.time_since_epoch().count(); }
 bool Held(int key, clock::time_point now) {
     if (key == kWheelUp) return now - clock::time_point(clock::duration(g_wheel_up.load())) < kWheelHold;
     if (key == kWheelDown) return now - clock::time_point(clock::duration(g_wheel_down.load())) < kWheelHold;
+    // Alt+Enter switches the full screen (common/display.cpp), it presses nothing in the game
+    if (key == VK_RETURN && (GetAsyncKeyState(VK_MENU) & 0x8000)) return false;
     return (GetAsyncKeyState(key) & 0x8000) != 0;
 }
 
