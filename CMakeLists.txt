@@ -37,6 +37,10 @@ foreach(patch ${SDK_PATCHES})
     endif()
 endforeach()
 
+# the SDK's input polls SDL from the game's threads, which SDL's debug assertions stop at (SDL_PumpEvents off the main
+# thread): every build gets SDL's release checks, as a release build always has
+set(SDL_ASSERTIONS release CACHE STRING "" FORCE)
+
 include(${SDK}/cmake/XbeRecomp.cmake)
 
 file(GLOB XBE_HOST_SOURCES CONFIGURE_DEPENDS src/*/*.cpp)
