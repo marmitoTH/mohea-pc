@@ -102,10 +102,14 @@ end of this file.
 
 ## 6. Minimal `app::kGame` (`src/common/game_info.cpp`)
 
-- [ ] `title`, `short_title`, `name`, `log`, `settings` (`mohea.toml`), `splash`, `missing` message
-- [ ] `images = {{"default.xbe", "MOHEA"}}` (single image)
-- [ ] Leave `load/save/init/loaded/window/message/ui/pad/rumble` null at first; add `init` only for the core-sharing setup from §8
-- [ ] Console language/region: NA disc. Make sure the emulated EEPROM gives a language the disc has (English; `START_US.XSH`, `STF/US`)
+- [x] `title`, `short_title`, `name`, `log` (`mohea`), `settings` (`mohea.toml`), `splash`, `missing` message (done in §2)
+- [x] `images = {{"default.xbe", "MOHEA"}}` (single image)
+- [x] `options = {}` and every hook null for now; `init` gets the core-sharing setup only if §8 needs it
+- [x] Console settings: the upstream kernel's `ExQueryNonVolatileSetting` (`sdk/runtime/kernel/xboxkrnl.cpp`) is fixed to what this disc needs, so no override is required (upstream has no `console_language` field; that is FH's fork)
+  - Language English (1): the disc's `START_US.XSH` / `STF/US`
+  - Game region North America (1) = the certificate's region `0x1`; AV region NTSC-M; DVD region 1
+  - Video flags: 480p, plus widescreen when the output is 3:2 or wider (`app::Widescreen`). On a 16:9 monitor the game is told it has a widescreen TV; check in §9 what MoH:EA does with it
+- [x] `mohea.toml` (written beside the exe): `display_mode` (fullscreen/borderless/windowed), `width`/`height` (0 = desktop), `render_percent`, `fps_cap`, `vsync`, `anisotropic_filtering`, `custom_textures`, `dump_textures`, `texture_dump_format`, `join_ip`
 
 ## 7. First boot: get past the kernel and into the game loop
 
