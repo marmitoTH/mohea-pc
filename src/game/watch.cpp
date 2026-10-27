@@ -23,10 +23,13 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "app/app.h"
+#include "common/options.h"
 #include "core/log.h"
 #include "xdk/hle.h"
 
@@ -189,7 +192,7 @@ void CheckBindings(uint8_t* base) {
     Arm(watch);
 }
 
-// MOHEA_WATCH=actions
+// MOHEA_WATCH=actions or shots
 std::string Mode() {
     static const std::string mode = [] {
         const char* v = std::getenv("MOHEA_WATCH");
@@ -217,4 +220,27 @@ X86_FUNC(sub_000C5330) {
     if (clock::now() < next) return;
     next = clock::now() + std::chrono::seconds(1);
     CheckBindings(base);
+}
+
+// shots: each shot's recoil (sub_00114050, from the weapons' fire handlers, ecx the player) appends a record to
+// logs/shots.bin: "SHOT", seconds, the frame rate (30 or 60), the player's address, 32 dwords of the guest stack
+// (the fire handler's return addresses among them) and 0x1600 bytes of the player, to compare a weapon's shots at 30
+// and at 60 for the fields that differ
+X86_EXTERN_FUNC(__imp__sub_00114050);
+X86_FUNC(sub_00114050) {
+    if (Mode() == "shots") {
+        static std::ofstream out((app::ExeDir() / "logs" / "shots.bin").string(), std::ios::binary | std::ios::app);
+        static const auto start = std::chrono::steady_clock::now();
+        float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+        uint32_t fps = g_sixty_fps ? 60 : 30, player = ctx.ecx;
+        out.write("SHOT", 4);
+        out.write(reinterpret_cast<const char*>(&seconds), 4);
+        out.write(reinterpret_cast<const char*>(&fps), 4);
+        out.write(reinterpret_cast<const char*>(&player), 4);
+        out.write(reinterpret_cast<const char*>(base + ctx.esp), 32 * 4);
+        out.write(reinterpret_cast<const char*>(base + player), 0x1600);
+        out.flush();
+        LOGR("watch: shot at %.2f s, %u fps, player %08X", seconds, fps, player);
+    }
+    __imp__sub_00114050(ctx, base);
 }
