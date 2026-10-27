@@ -167,14 +167,14 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 - [ ] DirectSound HLE → XAudio2: buffers, mix bins, Xbox ADPCM. **No DSound streams**: `DirectSoundCreateStream` is not linked (§4), so EA's streamed audio goes through buffers
 - [x] `DOLBY` section = DSP effects image: the SDK loads it (`dsound: effects image ...`: reverb, gain, mixers, crosstalk; 5 effects "not reproduced")
 - [ ] EA audio formats (`.abk` banks, `.ast`/`.mus` streams, `.mpf` music controller, `.bus`, `audiofx0.fx`) are parsed by game code; check they reach DSound and play at the right pitch/rate
-- [ ] Milestone **M3**: front-end music and menu SFX play
+- [x] Milestone **M3**: front-end music and menu SFX play; in-game sound correct (playtest 2026-10-27)
 
 ## 12. Input
 
 - [ ] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers); hot plug
-- [ ] Rumble (`XInputSetState`): high-byte fix in place (§7); confirm idle is silent and effects still rumble
+- [x] Rumble (`XInputSetState`): high-byte fix in place (§7); idle is silent (confirmed in the playtest)
 - [ ] Memory unit enumeration (`XPP_MemoryUnitType`) reports none/empty without crashing
-- [ ] Milestone **M4**: navigate the main menu with a controller
+- [x] Milestone **M4**: navigate the main menu with a controller
 
 ## 13. Saves, settings, storage
 
@@ -184,10 +184,12 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 
 ## 14. In-game boot milestones (definition of "bootable")
 
-- [ ] **M5**: start a campaign: the mission intro movie plays and the first level (`DATA/1/1_1`: `level_a.str`, `asyncstr.rez`, `loading.viv`) streams in
-- [ ] **M6**: in control of the player: rendering, audio, input all working in-level
-- [ ] **M7**: reach a checkpoint, die and restart, save and load
-- [ ] **M8**: finish a mission and transition to the next (level unload/reload: watch for freed-memory crashes like FH's)
+First playtest (2026-10-27, release build, windowed, controller): 15.5 min, mission 1 finished and mission 2 started, deaths and restarts, no crash, clean exit; graphics, sound and input as expected.
+
+- [x] **M5**: start a campaign: the mission intro movie plays and the first level (`DATA/1/1_1`: `level_a.str`, `asyncstr.rez`, `loading.viv`) streams in
+- [x] **M6**: in control of the player: rendering, audio, input all working in-level
+- [x] **M7**: reach a checkpoint, die and restart (playtest: died and carried on; save/load across a restart still to check)
+- [x] **M8**: finish a mission and transition to the next (level unload/reload: watch for freed-memory crashes like FH's)
 - [ ] **M9**: full campaign playthrough without crashes; play every movie once
 
 ## 15. Packaging (after it boots)
