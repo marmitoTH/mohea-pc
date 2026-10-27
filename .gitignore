@@ -30,3 +30,6 @@ mohea.toml
 
 # Local temporary folder
 .local
+
+# python
+__pycache__/
