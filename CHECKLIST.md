@@ -51,6 +51,7 @@ end of this file.
 - [x] `src/common/game_info.cpp`: MOHEA names, `mohea.toml`, `mohea` log prefix (the §6 basics)
 - [x] `tools/xiso.py`: `list` / `info` / `extract` for the disc image (in Git Bash, set `MSYS_NO_PATHCONV=1` so `/DEFAULT.XBE` isn't rewritten)
 - [x] `cmake --preset release` configures: Zydis, toml++, Dear ImGui and SDL3 fetched into `out/build/release/_deps`
+- [ ] Decide how we carry **SDK fixes** (first one: `D3DDevice_SetViewport(NULL)` in `sdk/runtime/xdk/d3d8.cpp`, uncommitted in the submodule): a fork as the submodule, patches applied by the build, and/or upstream PRs
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`
@@ -113,12 +114,20 @@ end of this file.
 
 ## 7. First boot: get past the kernel and into the game loop
 
-- [ ] Launch; read the log (`<log>*.txt`) and `CrashDumps/` beside the exe
-- [ ] Fix every **trapping stub** hit, either by finding the real symbol (§4) or by implementing/stubbing it in `src/game`
-- [ ] Note any **kernel exports** the SDK does not implement yet (the game imports from XBOXKRNL 5849) and implement them in the runtime
-- [ ] Drive mapping: `D:\` → game data (ISO or folder), `T:\` (title data) / `U:\` (user saves) → `hdd/` beside the exe, `Z:\` → scratch/cache
-- [ ] Threads: verify all game threads start (main, loading/streaming, audio). Check none are stuck in a busy-wait (see §8).
-- [ ] Milestone **M1**: window opens and the D3D8 device is created without a trap
+- [x] Launch; read the log (`out/build/release/logs/mohea.log`) and `CrashDumps/` beside the exe
+  - Release builds log only errors and reports (`NDEBUG`); the `debug` preset logs info/warnings too
+  - Crash triage: `[esp+N]` return addresses in the log give the guest call chain; the host fault address → `MOHEA.dll` RVA (from the dump's module list) → guest function via the DLL's exported `X86FuncMappings` table → x64 disassembly around it, which carries guest constants. `-g` is link-only, so the PDB has no line tables
+- [x] Dev loop: an exe-only relink left `MOHEA.dll` older than the exe, so its first start **recompiled the game code itself** (the release "build on the player's PC" path, ~35 s, then a "Start the game now?" prompt). `CMakeLists.txt` now touches the DLL and drops the stale stamp after each exe link
+- [x] Boot crashes fixed (3):
+  1. `D3DDevice_SetBackBufferScale` (`0x2DC070`, unnamed, guest code) → helper `0x2DACB0` read `CDevice_VertexShader` (0) flags: the library's device init stores the FVF shader object there. Fix: `[data] D3D_FvfShader = 0x2EBBC8` (from `0x2E0A5B`); the SDK's CreateDevice then sets it
+  2. The same helper calls `D3DDevice_SetViewport(NULL)` ("set the current viewport again, scissors off"); **the SDK's HLE dereferenced NULL**. Fix: in `sdk/runtime/xdk/d3d8.cpp` (an SDK change, see §2's open item)
+  3. `D3DDevice_Reset` (`0x2D8750`) ran as guest code and polled NV2A registers through the uninitialised miniport (`[0 + 0x3214]`). The SDK has a Reset HLE but **no 5849 signature** for it. Fix: `[symbols] D3DDevice_Reset = 0x2D8750`
+- [x] No trapping stubs or missing kernel exports hit up to the front end
+- [x] Drive mapping: `D:` = `assets/`; hard disk under `out/build/release/hdd/` (`E`, `C`, `X`, `Y`, `Z`). The game writes `T:` → `hdd/E/TDATA/4541005e` and saves to `U:` → `hdd/E/UDATA/4541005e/<save>/` (`DATA`, `SaveMeta.xbx`, `TitleMeta.xbx`, images)
+- [x] Threads: 43 host threads; in the front end the process uses ~27% of one core, busiest thread 19%: **no busy-wait** so far (re-check in game, §8)
+- [x] Milestone **M1**: window opens and the D3D8 device is created without a trap (RTX 4060, D3D12)
+- [x] Beyond M1: THX logo movie plays, then the front end (Controller Settings screen) renders correctly by 40 s
+- [x] Rumble stuck on (reported while testing): the game sets the left motor to `(strength << 8) + 0xFF` (`0xC5AD5`), so `0x00FF` is its "off"; the Xbox pad only uses the high byte. Fix: `kGame.rumble` in `src/common/game_info.cpp` keeps the high byte, scaled to full range
 
 ## 8. Single-core assumptions (lessons from Finest Hour; port-critical)
 
@@ -133,7 +142,7 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 
 ## 9. Graphics (EAGL on the SDK's D3D8 → D3D12 renderer)
 
-- [ ] Milestone **M2**: first frame presented (EA logo, then THX `.vp6`, or `DATA/LOADING/START_US.XSH` loading screen)
+- [x] Milestone **M2**: first frame presented (THX `.vp6` at ~10 s, the front end at ~40 s)
 - [ ] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`)
 - [ ] Pixel shaders (`*__EAGLMicroCodePS`): check the pixel combiner translation covers them (env-maps, gloss, lightmaps, refractive, alpha maps)
 - [x] EAGL writes the **push buffer directly**: yes, through `BeginPush`/`EndPush` (named in §4; the SDK's EndPush runs `BEGIN_END` + `INLINE_ARRAY` draws)
@@ -146,19 +155,21 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 ## 10. Movies (VP6)
 
 - [ ] VP6 is decoded by **game code** (EA's player inside the XBE), so it is recompiled like everything else. The SDK's Bink fixes do **not** apply.
+- [x] `thxlogo.vp6` decodes and displays (first boot)
 - [ ] Verify playback speed/timing (timer-based vs frame-count-based) and A/V sync for `eagmlogo`, `thxlogo` and the mission intros
 - [ ] Subtitles (`STF/US/*.stf`) render
 
 ## 11. Audio
 
 - [ ] DirectSound HLE → XAudio2: buffers, mix bins, Xbox ADPCM. **No DSound streams**: `DirectSoundCreateStream` is not linked (§4), so EA's streamed audio goes through buffers
-- [ ] `DOLBY` section = DSP effects image: confirm the upstream SDK's `dsp_image` support loads it (or stub it cleanly)
+- [x] `DOLBY` section = DSP effects image: the SDK loads it (`dsound: effects image ...`: reverb, gain, mixers, crosstalk; 5 effects "not reproduced")
 - [ ] EA audio formats (`.abk` banks, `.ast`/`.mus` streams, `.mpf` music controller, `.bus`, `audiofx0.fx`) are parsed by game code; check they reach DSound and play at the right pitch/rate
 - [ ] Milestone **M3**: front-end music and menu SFX play
 
 ## 12. Input
 
-- [ ] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers); hot plug; rumble (`XInputSetState`)
+- [ ] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers); hot plug
+- [ ] Rumble (`XInputSetState`): high-byte fix in place (§7); confirm idle is silent and effects still rumble
 - [ ] Memory unit enumeration (`XPP_MemoryUnitType`) reports none/empty without crashing
 - [ ] Milestone **M4**: navigate the main menu with a controller
 
