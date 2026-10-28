@@ -8,6 +8,7 @@
 
 #include <toml++/toml.hpp>
 
+#include "common/ssao.h"
 #include "core/log.h"
 #include "gpu/ext.h"
 
@@ -64,25 +65,29 @@ bool HudStart(const gpu::State& s) {
     return s.rs[gpu::kRsZEnable] && s.simple[gpu::kMZWriteEnable / 4] && s.simple[gpu::kMZFunc / 4] == kZFuncAlways;
 }
 
-class Sharpen : public gpu::Extension {
+// the renderer extension: the ambient occlusion (common/ssao.h) once the solid world is drawn, then the sharpening
+class Effects : public gpu::Extension {
 public:
-    bool Bound(gpu::Context& ctx, const gpu::State& s, gpu::Target* rt, gpu::Target*, bool) override {
+    bool Bound(gpu::Context& ctx, const gpu::State& s, gpu::Target* rt, gpu::Target* ds, bool) override {
         uint64_t frame = ctx.Presents();
         if (frame != frame_) {
             frame_ = frame;
             scene_ = 0;
             done_ = false;
         }
+        ssao_.Capture(s, frame);
         uint32_t w = 0, h = 0;
         ctx.GuestSize(w, h);
         // the back buffer: the title's size
         if (!rt || rt->depth || done_ || !w || !h || rt->gw != w || rt->gh != h) return false;
         if (!HudStart(s)) {
+            if (ssao_.Run(ctx, s, *rt, ds, frame, scene_)) return true;
             scene_++;
             return false;
         }
         if (scene_ < kSceneDraws) return false;
         done_ = true;
+        ssao_.Hud(frame);
         float sharpness = g_sharpness.load();
         if (!g_on || sharpness <= 0.0f) return false;
         ID3D12Resource* copy = ctx.Feedback(*rt);
@@ -102,11 +107,12 @@ private:
     uint64_t frame_ = ~0ull;
     uint32_t scene_ = 0;
     bool done_ = false;
+    ssao::Pass ssao_;
 };
 
 }  // namespace
 
-void Install() { gpu::SetExtension(std::make_unique<Sharpen>()); }
+void Install() { gpu::SetExtension(std::make_unique<Effects>()); }
 
 void Load(const void* table) {
     const toml::table& t = *static_cast<const toml::table*>(table);

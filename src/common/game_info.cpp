@@ -3,6 +3,7 @@
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
+#include "common/ssao.h"
 
 namespace {
 
@@ -25,11 +26,13 @@ void Init() {
 void LoadSettings(const void* table) {
     pc_input::Load(table);
     sharpen::Load(table);
+    ssao::Load(table);
 }
 
 void SaveSettings(void* table) {
     pc_input::Save(table);
     sharpen::Save(table);
+    ssao::Save(table);
 }
 
 // the full screen keys first, then the keyboard and mouse
@@ -53,7 +56,8 @@ const app::GameInfo app::kGame = {
     .options = {{"mouse_sensitivity", nullptr, &pc_input::g_mouse_sensitivity},  // game settings kept in the
                 {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
                 {"sixty_fps", &g_sixty_fps, nullptr},
-                {"sharpening", &sharpen::g_on, nullptr}},
+                {"sharpening", &sharpen::g_on, nullptr},
+                {"ssao", &ssao::g_on, nullptr}},
     .load = LoadSettings,                         // reads more from the settings file's toml::table
     .save = SaveSettings,                         // writes more into it
     .init = Init,                                 // after the settings load, before the window and boot

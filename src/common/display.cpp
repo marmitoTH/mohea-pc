@@ -16,6 +16,7 @@
 #include "app/app.h"
 #include "common/options.h"
 #include "common/sharpen.h"
+#include "common/ssao.h"
 #include "core/log.h"
 
 namespace display {
@@ -44,7 +45,7 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
-// a notice in the corner for a moment after F9 or F8: what it switched to
+// a notice in the corner for a moment after F9, F8 or F7: what it switched to
 using clock = std::chrono::steady_clock;
 clock::time_point g_notice_until{};
 const char* g_notice = "";
@@ -70,6 +71,14 @@ void ToggleSharpening() {
     app::Save();
 }
 
+// F7: the ambient occlusion of the 3D picture (common/ssao.h)
+void ToggleSsao() {
+    ssao::g_on = !ssao::g_on;
+    Notice(ssao::g_on ? "SSAO ON" : "SSAO OFF");
+    LOGR("ssao: %s", ssao::g_on ? "on" : "off");
+    app::Save();
+}
+
 }  // namespace
 
 bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
@@ -88,6 +97,11 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
             }
             if (wp == VK_F8) {
                 if (first) ToggleSharpening();
+                *result = 0;
+                return true;
+            }
+            if (wp == VK_F7) {
+                if (first) ToggleSsao();
                 *result = 0;
                 return true;
             }

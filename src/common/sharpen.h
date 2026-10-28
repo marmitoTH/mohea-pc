@@ -8,7 +8,7 @@ namespace sharpen {
 
 extern bool g_on;
 
-// before the backend is made (GameInfo::init)
+// before the backend is made (GameInfo::init): the renderer extension, with the ambient occlusion (common/ssao.h)
 void Install();
 
 // settings file: sharpness (sharpening is a GameInfo option)
