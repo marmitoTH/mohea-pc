@@ -51,11 +51,12 @@ end of this file.
 - [x] `src/common/game_info.cpp`: MOHEA names, `mohea.toml`, `mohea` log prefix (the §6 basics)
 - [x] `tools/xiso.py`: `list` / `info` / `extract` for the disc image (in Git Bash, set `MSYS_NO_PATHCONV=1` so `/DEFAULT.XBE` isn't rewritten)
 - [x] `cmake --preset release` configures: Zydis, toml++, Dear ImGui and SDL3 fetched into `out/build/release/_deps`
-- [x] **SDK fixes are patches in this repo**: `sdk/` stays pinned to upstream; `sdk_patches/NNNN-*.patch` (a short explanation above the diff, LF endings) are applied by `CMakeLists.txt` at configure time, in name order, each skipped when already in the checkout, a clear error when one no longer applies. `.gitmodules` has `ignore = dirty` so the patched submodule does not show as changed
-  - New patch: edit under `sdk/`, then `git -C sdk diff > sdk_patches/NNNN-name.patch` (add the explanation on top)
-  - On an SDK update: revert `sdk/` (`git -C sdk checkout .`), move the submodule, reconfigure, refresh any patch that fails
+- [x] **SDK fixes are patches in this repo**: `sdk/` stays pinned to upstream; `sdk_patches/NNNN-*.patch` (a short explanation above the diff, LF endings) are applied by `CMakeLists.txt` at configure time as one series, in name order. A stamp in the checkout (`sdk/.sdk_patches`) keeps the series' hash; when the patches change (added, removed or edited), the checkout's files are reset and every patch applied again, with a clear error when one no longer applies. Edits made by hand under `sdk/` are lost then. `.gitmodules` has `ignore = dirty` so the patched submodule does not show as changed
+  - New patch: with the series applied, `git -C sdk add -A`, edit under `sdk/`, `git -C sdk diff > sdk_patches/NNNN-name.patch` (add the explanation on top), `git -C sdk reset`
+  - On an SDK update: move the submodule, reconfigure, refresh any patch that fails
   - `0001-d3d8-SetViewport-accepts-null.patch`: the §7 boot fix
   - `0002-app-window-size-and-render-scale.patch`: windowed, the render resolution follows the window
+  - `0003-app-gpu-supersampling.patch`: the `antialiasing` setting (supersampling, 2x by default) and the present's box filter
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`

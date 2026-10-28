@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdio>
 
 #include <imgui.h>
 
@@ -45,7 +46,7 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
-// a notice in the corner for a moment after F9, F8 or F7: what it switched to
+// a notice in the corner for a moment after F9, F8, F7 or F6: what it switched to
 using clock = std::chrono::steady_clock;
 clock::time_point g_notice_until{};
 const char* g_notice = "";
@@ -68,6 +69,18 @@ void ToggleSharpening() {
     sharpen::g_on = !sharpen::g_on;
     Notice(sharpen::g_on ? "Sharpening ON" : "Sharpening OFF");
     LOGR("sharpening: %s", sharpen::g_on ? "on" : "off");
+    app::Save();
+}
+
+// F6: the supersampling's samples a pixel, off, 2, 4, 8, 16 and off again (the settings' antialiasing)
+void CycleAntialiasing() {
+    static char text[16];
+    uint32_t& aa = app::Get().antialiasing;
+    aa = aa == 0 ? 2 : aa >= 16 ? 0 : aa * 2;
+    if (aa) std::snprintf(text, sizeof(text), "SSAA %ux", aa);
+    else std::snprintf(text, sizeof(text), "SSAA OFF");
+    Notice(text);
+    LOGR("antialiasing: %u", aa);
     app::Save();
 }
 
@@ -102,6 +115,11 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
             }
             if (wp == VK_F7) {
                 if (first) ToggleSsao();
+                *result = 0;
+                return true;
+            }
+            if (wp == VK_F6) {
+                if (first) CycleAntialiasing();
                 *result = 0;
                 return true;
             }
