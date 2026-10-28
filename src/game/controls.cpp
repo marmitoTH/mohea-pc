@@ -40,8 +40,8 @@ X86_FUNC(sub_00114980) {
 }
 
 // the look handler: the mouse's angles for this frame, for the player only. Aiming (the player's +0x1C0 bit 25) the
-// handler slows the stick by the field of view (+0x138, degrees) over 70, the view at rest; the mouse slows by that to
-// the power 0.8, a little less, so a scope's zoom neither makes it race nor drag
+// handler slows the stick by the field of view (+0x138, degrees) over 70; the mouse slows by that to the power 0.8, a
+// little less, so a scope's zoom neither makes it race nor drag
 X86_EXTERN_FUNC(__imp__sub_00114D20);
 X86_FUNC(sub_00114D20) {
     if (ctx.ecx == g_player) {

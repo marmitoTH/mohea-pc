@@ -56,6 +56,7 @@ const app::GameInfo app::kGame = {
     .options = {{"mouse_sensitivity", nullptr, &pc_input::g_mouse_sensitivity},  // game settings kept in the
                 {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
                 {"sixty_fps", &g_sixty_fps, nullptr},
+                {"fov", nullptr, &g_fov},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr}},
     .load = LoadSettings,                         // reads more from the settings file's toml::table

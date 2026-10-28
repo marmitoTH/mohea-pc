@@ -91,6 +91,14 @@ void Draw() {
     }
     if (ImGui::Checkbox("VSync", &s.vsync)) app::Save();
     if (ImGui::Checkbox("60 FPS in game", &g_sixty_fps)) app::Save();
+    int fov = int(g_fov);
+    if (ImGui::SliderInt("Field of view", &fov, 60, 110, "%d degrees")) g_fov = uint32_t(fov);
+    SaveAfter();
+    ImGui::SameLine();
+    if (ImGui::Button("Default##fov")) {
+        g_fov = 70;  // the game's
+        app::Save();
+    }
 
     Heading("Color");
     // the frame as shown, menus and HUD too (the runtime's present)
