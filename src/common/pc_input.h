@@ -21,6 +21,11 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
 // a polled controller: the keys and the mouse merged into port 0, which is connected without a controller too
 void Pad(int port, input::Pad& pad);
 
+// the A button's two actions in game, reload and use (game/actions.cpp): which one alone the keys press it for, as of
+// the last poll; Both when a controller's A or a key bound to A itself holds it, or nothing does
+enum class AOnly { Both, Reload, Use };
+AOnly AButton();
+
 // direct look, once a frame from the game's look handler: the mouse's motion since the last call as the view's turn,
 // radians, right and up positive; 0 when the game window is not active. While the game calls it the mouse no longer
 // moves the right stick

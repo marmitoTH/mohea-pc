@@ -39,24 +39,31 @@ enum Target : int {
     kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger,
     kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb,
     kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
+    kReload, kUse,
     kTargetCount
 };
 
 constexpr const char* kTargetNames[kTargetCount] = {
     "a", "b", "x", "y", "black", "white", "left_trigger", "right_trigger",
     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "left_thumb", "right_thumb",
-    "move_forward", "move_back", "move_left", "move_right", "look_up", "look_down", "look_left", "look_right"};
+    "move_forward", "move_back", "move_left", "move_right", "look_up", "look_down", "look_left", "look_right",
+    "reload", "use"};
+
+// an analog button the game counts as held (sub_000C4D50: over 0x7F)
+constexpr uint8_t kAnalogHeld = 0x7F;
 
 // virtual key codes (mouse buttons included), plus the wheel as two keys
 constexpr int kWheelUp = 0x100, kWheelDown = 0x101;
 
-// the game's Sharp Shooter layout (Options, Controller Settings): A action/reload, B change weapon, X crouch/prone,
+// the game's Sharp Shooter layout (Options, Controller Settings): A action/reload (here R reload, E use: each
+// presses A for the one; game/actions.cpp), B change weapon, X crouch/prone,
 // Y jump/stand, black adrenaline, white medkit, left trigger aim, right trigger fire, back mission map, start pause,
 // left thumb click position squad, right thumb click melee, d-pad grenade and recall squad. Enter is start: the title
 // screen takes only start
 std::array<std::vector<int>, kTargetCount> Defaults() {
     std::array<std::vector<int>, kTargetCount> k;
-    k[kA] = {'E', 'R'};
+    k[kReload] = {'R'};
+    k[kUse] = {'E'};
     k[kB] = {'Q', kWheelUp, kWheelDown, VK_BACK};
     k[kX] = {'C', VK_LCONTROL};
     k[kY] = {VK_SPACE};
@@ -82,6 +89,7 @@ std::array<std::vector<int>, kTargetCount> Defaults() {
 std::mutex g_lock;  // the bindings and the mouse's motion: the pads are polled from several threads
 std::array<std::vector<int>, kTargetCount> g_keys = Defaults();
 std::atomic<HWND> g_hwnd{nullptr};
+std::atomic<AOnly> g_a_only{AOnly::Both};
 
 // the wheel's notches are presses held for a moment, long enough for a poll at the game's frame rate to see them
 constexpr auto kWheelHold = std::chrono::milliseconds(80);
@@ -218,6 +226,15 @@ void Load(const void* table) {
         }
         g_keys[i] = std::move(bound);
     }
+    // a file from before reload and use had their own keys has them on A, which presses both: off it
+    if (!keys->get(kTargetNames[kReload]) && !keys->get(kTargetNames[kUse])) {
+        const auto defaults = Defaults();
+        std::erase_if(g_keys[kA], [&](int k) {
+            for (Target t : {kReload, kUse})
+                if (std::find(defaults[t].begin(), defaults[t].end(), k) != defaults[t].end()) return true;
+            return false;
+        });
+    }
 }
 
 void Save(void* table) {
@@ -286,7 +303,11 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
 void Pad(int port, input::Pad& pad) {
     if (port != 0) return;
     pad.connected = true;
-    if (!Active()) return;
+    bool pad_a = pad.analog[0] > kAnalogHeld;
+    if (!Active()) {
+        g_a_only = AOnly::Both;
+        return;
+    }
     clock::time_point now = clock::now();
     std::array<bool, kTargetCount> held{};
     float rate_x = 0.0f, rate_y = 0.0f;
@@ -312,6 +333,10 @@ void Pad(int port, input::Pad& pad) {
     // analog buttons: A B X Y black white, left and right trigger
     for (int i = 0; i < 8; i++)
         if (held[kA + i]) pad.analog[i] = 0xFF;
+    // reload and use press A, and say which of its actions it is for when nothing else holds it
+    if (held[kReload] || held[kUse]) pad.analog[0] = 0xFF;
+    bool other = pad_a || held[kA] || (held[kReload] && held[kUse]);
+    g_a_only = other ? AOnly::Both : held[kReload] ? AOnly::Reload : held[kUse] ? AOnly::Use : AOnly::Both;
 
     // keys push a stick fully over what the controller has, a diagonal as far as a controller's stick goes there: an
     // Xbox 360 pad's left stick pushed into a diagonal reads about 25900 an axis, 1.10 to 1.14 times a straight push
@@ -333,6 +358,10 @@ void Pad(int port, input::Pad& pad) {
     if (Ticks(now) < g_direct_until.load()) return;
     pad.rx = Axis(float(pad.rx) + Stick(rate_x));
     pad.ry = Axis(float(pad.ry) + Stick(g_invert_mouse_y ? rate_y : -rate_y));
+}
+
+AOnly AButton() {
+    return g_a_only.load();
 }
 
 void TakeLook(float& yaw, float& pitch) {
