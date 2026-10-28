@@ -2,6 +2,7 @@
 #include "common/display.h"
 #include "common/options.h"
 #include "common/pc_input.h"
+#include "common/sharpen.h"
 
 namespace {
 
@@ -14,8 +15,22 @@ void Rumble(int, uint16_t& left, uint16_t& right) {
 }
 
 // the runtime only reads the settings file: written back once loaded, it shows every setting with its default,
-// the key bindings among them, to change by hand
-void Init() { app::Save(); }
+// the key bindings among them, to change by hand; then the renderer's sharpening
+void Init() {
+    app::Save();
+    sharpen::Install();
+}
+
+// the settings file's tables and values past the options
+void LoadSettings(const void* table) {
+    pc_input::Load(table);
+    sharpen::Load(table);
+}
+
+void SaveSettings(void* table) {
+    pc_input::Save(table);
+    sharpen::Save(table);
+}
 
 // the full screen keys first, then the keyboard and mouse
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
@@ -37,9 +52,10 @@ const app::GameInfo app::kGame = {
     .images = {{"default.xbe", "MOHEA"}},         // each recompiled xbe and its exe, for title launches
     .options = {{"mouse_sensitivity", nullptr, &pc_input::g_mouse_sensitivity},  // game settings kept in the
                 {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
-                {"sixty_fps", &g_sixty_fps, nullptr}},
-    .load = pc_input::Load,                       // reads more from the settings file's toml::table
-    .save = pc_input::Save,                       // writes more into it
+                {"sixty_fps", &g_sixty_fps, nullptr},
+                {"sharpening", &sharpen::g_on, nullptr}},
+    .load = LoadSettings,                         // reads more from the settings file's toml::table
+    .save = SaveSettings,                         // writes more into it
     .init = Init,                                 // after the settings load, before the window and boot
     .loaded = nullptr,                            // image in memory, before its entry point runs
     .window = pc_input::Window,                   // the game window is up

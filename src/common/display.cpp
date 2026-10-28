@@ -15,6 +15,7 @@
 
 #include "app/app.h"
 #include "common/options.h"
+#include "common/sharpen.h"
 #include "core/log.h"
 
 namespace display {
@@ -43,15 +44,29 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
-// a notice in the corner for a moment after F9: the frame rate it switched to
+// a notice in the corner for a moment after F9 or F8: what it switched to
 using clock = std::chrono::steady_clock;
 clock::time_point g_notice_until{};
+const char* g_notice = "";
+
+void Notice(const char* text) {
+    g_notice = text;
+    g_notice_until = clock::now() + std::chrono::seconds(2);
+}
 
 // F9: 30 or 60 frames a second in game (game/frame_rate.cpp), to compare the two
 void ToggleFrameRate() {
     g_sixty_fps = !g_sixty_fps;
-    g_notice_until = clock::now() + std::chrono::seconds(2);
+    Notice(g_sixty_fps ? "60 FPS" : "30 FPS");
     LOGR("frame rate: %d in game", g_sixty_fps ? 60 : 30);
+    app::Save();
+}
+
+// F8: the sharpening of the 3D picture (common/sharpen.h)
+void ToggleSharpening() {
+    sharpen::g_on = !sharpen::g_on;
+    Notice(sharpen::g_on ? "Sharpening ON" : "Sharpening OFF");
+    LOGR("sharpening: %s", sharpen::g_on ? "on" : "off");
     app::Save();
 }
 
@@ -68,6 +83,11 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
             }
             if (wp == VK_F9) {
                 if (first) ToggleFrameRate();
+                *result = 0;
+                return true;
+            }
+            if (wp == VK_F8) {
+                if (first) ToggleSharpening();
                 *result = 0;
                 return true;
             }
@@ -93,7 +113,7 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
 
 void Ui() {
     if (clock::now() >= g_notice_until) return;
-    const char* text = g_sixty_fps ? "60 FPS" : "30 FPS";
+    const char* text = g_notice;
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     float size = ImGui::GetFontSize() * 2.0f;
     ImVec2 at(24.0f, 24.0f);
