@@ -57,6 +57,7 @@ end of this file.
   - `0001-d3d8-SetViewport-accepts-null.patch`: the §7 boot fix
   - `0002-app-window-size-and-render-scale.patch`: windowed, the render resolution follows the window
   - `0003-app-gpu-supersampling.patch`: the `antialiasing` setting (supersampling, 2x by default) and the present's box filter
+  - `0004-gpu-color-grade.patch`: the `gamma`, `contrast` and `saturation` settings, graded at the present
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`

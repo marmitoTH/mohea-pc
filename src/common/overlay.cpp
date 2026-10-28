@@ -1,6 +1,8 @@
 // See overlay.h.
 #include "common/overlay.h"
 
+#include <algorithm>
+
 #include <imgui.h>
 
 #include "app/app.h"
@@ -81,6 +83,24 @@ void Draw() {
     }
     if (ImGui::Checkbox("VSync", &s.vsync)) app::Save();
     if (ImGui::Checkbox("60 FPS in game", &g_sixty_fps)) app::Save();
+
+    Heading("Color");
+    // the frame as shown, menus and HUD too (the runtime's present)
+    if (ImGui::SliderFloat("Gamma", &s.gamma, 0.5f, 2.0f, "%.2f")) s.gamma = std::clamp(s.gamma, 0.5f, 2.0f);
+    SaveAfter();
+    if (ImGui::SliderFloat("Contrast", &s.contrast, 0.5f, 2.0f, "%.2f"))
+        s.contrast = std::clamp(s.contrast, 0.5f, 2.0f);
+    SaveAfter();
+    if (ImGui::SliderFloat("Saturation", &s.saturation, 0.0f, 2.0f, "%.2f"))
+        s.saturation = std::clamp(s.saturation, 0.0f, 2.0f);
+    SaveAfter();
+    if (ImGui::Button("Default colors")) {
+        const app::Settings defaults;
+        s.gamma = defaults.gamma;
+        s.contrast = defaults.contrast;
+        s.saturation = defaults.saturation;
+        app::Save();
+    }
 
     Heading("Image");
     if (ImGui::Checkbox("Sharpening", &sharpen::g_on)) app::Save();

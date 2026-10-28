@@ -124,7 +124,7 @@ void Load(const void* table) {
 
 void Save(void* table) {
     toml::table& t = *static_cast<toml::table*>(table);
-    t.insert_or_assign("sharpness", double(g_sharpness.load()));
+    t.insert_or_assign("sharpness", std::round(double(g_sharpness.load()) * 100.0) / 100.0);
 }
 
 }  // namespace sharpen

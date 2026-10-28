@@ -114,7 +114,8 @@ void Load(const void* table) {
 }
 
 void Save(void* table) {
-    static_cast<toml::table*>(table)->insert_or_assign("ssao_strength", double(g_strength.load()));
+    double strength = std::round(double(g_strength.load()) * 100.0) / 100.0;
+    static_cast<toml::table*>(table)->insert_or_assign("ssao_strength", strength);
 }
 
 // A perspective transform in c0..c3 (the characters' and many objects' world view projection): c2's xyz is c3's
