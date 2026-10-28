@@ -20,22 +20,41 @@ else()
     set(SDK ${xbe_sdk_SOURCE_DIR})
 endif()
 
-# our fixes to the SDK, applied to its checkout in name order; one already in it is left alone
+# our fixes to the SDK, applied to its checkout in name order as one series: a stamp in the checkout keeps the series'
+# hash, and another series (patches added or changed) resets the checkout's files and applies them all again, as
+# patches next to each other cannot be checked one at a time
 find_package(Git REQUIRED)
 file(GLOB SDK_PATCHES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/sdk_patches/*.patch)
 list(SORT SDK_PATCHES)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SDK_PATCHES})  # a patch edited: configure again
+set(series "")
 foreach(patch ${SDK_PATCHES})
+    file(SHA256 ${patch} hash)
     get_filename_component(patch_name ${patch} NAME)
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${SDK} apply -R --check ${patch} RESULT_VARIABLE applied
-                    OUTPUT_QUIET ERROR_QUIET)
-    if(NOT applied EQUAL 0)
+    string(APPEND series "${patch_name} ${hash}\n")
+endforeach()
+string(SHA256 series_hash "${series}")
+set(stamp ${SDK}/.sdk_patches)
+set(applied_hash "")
+if(EXISTS ${stamp})
+    file(READ ${stamp} applied_hash)
+    string(STRIP "${applied_hash}" applied_hash)
+endif()
+if(NOT applied_hash STREQUAL series_hash)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${SDK} checkout -- . RESULT_VARIABLE failed ERROR_VARIABLE why)
+    if(failed)
+        message(FATAL_ERROR "could not reset ${SDK} for its patches\n${why}")
+    endif()
+    foreach(patch ${SDK_PATCHES})
+        get_filename_component(patch_name ${patch} NAME)
         execute_process(COMMAND ${GIT_EXECUTABLE} -C ${SDK} apply ${patch} RESULT_VARIABLE failed ERROR_VARIABLE why)
         if(failed)
             message(FATAL_ERROR "sdk_patches/${patch_name} does not apply to ${SDK}: update the patch for this SDK\n${why}")
         endif()
         message(STATUS "SDK patch applied: ${patch_name}")
-    endif()
-endforeach()
+    endforeach()
+    file(WRITE ${stamp} "${series_hash}\n")
+endif()
 
 # the SDK's input polls SDL from the game's threads, which SDL's debug assertions stop at (SDL_PumpEvents off the main
 # thread): every build gets SDL's release checks, as a release build always has
