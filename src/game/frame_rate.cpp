@@ -4,6 +4,8 @@
 // its movement, turning and the rest by. A level's start (sub_0007FC50) sets that wait to 2 blanks, 30 frames a
 // second; the menus do not wait. With the option the wait is one blank, as the menus run; without it, back to the
 // level's 2 (F9 switches it while playing).
+#include <cmath>
+
 #include "common/options.h"
 #include "xdk/hle.h"
 
@@ -23,4 +25,24 @@ X86_FUNC(sub_000137C0) {
         set = false;
     }
     __imp__sub_000137C0(ctx, base);
+}
+
+// The script timers (sub_0014CD90, cdecl (step), on the list at 0x4F7298; the frame update passes the frame's step in
+// blanks, sub_00036410) fire when their delay has run out, in blanks too, but the scripts set some in seconds: a
+// demolition charge's charging ticks every 0.033 (sub_0008EAB0, 90 ticks to plant). At 30 frames a second such a
+// timer fired every frame, 2 blanks; at 60 every frame, 1 blank, and planting took half as long. Here the timers run
+// as at 30 at any frame rate: in whole steps of 2 blanks, a longer frame's in one, the rest kept for the next.
+X86_EXTERN_FUNC(__imp__sub_0014CD90);
+X86_FUNC(sub_0014CD90) {
+    constexpr float kStep = 2.0f;
+    static float waiting = 0.0f;
+    float& step = *reinterpret_cast<float*>(base + ctx.esp + 4);
+    waiting += step;
+    if (waiting < kStep) {
+        ctx.esp += 4;  // ret
+        return;
+    }
+    step = std::floor(waiting / kStep) * kStep;
+    waiting -= step;
+    __imp__sub_0014CD90(ctx, base);
 }
