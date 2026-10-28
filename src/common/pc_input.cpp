@@ -24,6 +24,7 @@
 #include <toml++/toml.hpp>
 
 #include "app/app.h"
+#include "common/overlay.h"
 
 namespace pc_input {
 
@@ -181,8 +182,14 @@ std::atomic<bool> g_released{false}, g_swallow{false};
 
 bool Windowed() { return app::Get().display_mode == app::DisplayMode::Windowed; }
 
-// the mouse turns the view and its buttons press
-bool Captured() { return Active() && !g_released.load(); }
+// the mouse turns the view and its buttons press: not while it is let go, nor while the overlay is open
+bool Captured() { return Active() && !g_released.load() && !overlay::g_open.load(); }
+
+// the overlay open from a controller, the mouse not moved since: the cursor stays hidden
+bool PadOverlay() { return overlay::g_open.load() && overlay::g_by_pad.load(); }
+
+// the overlay opened or closed (Refresh): the window takes the mouse or lets it go; ShowCursor counts per thread
+constexpr UINT kRefresh = WM_APP + 0x40;
 
 bool MouseButton(int key) {
     return key == VK_LBUTTON || key == VK_RBUTTON || key == VK_MBUTTON || key == VK_XBUTTON1 || key == VK_XBUTTON2;
@@ -283,6 +290,12 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
                     UINT(-1) ||
                 raw.header.dwType != RIM_TYPEMOUSE || (raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
                 break;
+            // the overlay opened from a controller: the mouse moved, so it is the mouse's
+            if (PadOverlay() && (raw.data.mouse.lLastX || raw.data.mouse.lLastY)) {
+                overlay::g_by_pad = false;
+                Capture(hwnd, false);
+                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            }
             if (!Captured()) break;
             Capture(hwnd, true);
             std::lock_guard lock(g_lock);
@@ -304,7 +317,7 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
         case WM_LBUTTONDOWN:
         case WM_RBUTTONDOWN:
         case WM_MBUTTONDOWN:
-            if (g_released.load() && Active()) {
+            if (g_released.load() && Active() && !overlay::g_open.load()) {
                 g_released = false;
                 g_swallow = true;
                 Capture(hwnd, true);
@@ -313,14 +326,22 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
         case WM_SETCURSOR:
             // the window's class has no cursor: over the game the arrow while the mouse is let go
             if (LOWORD(lp) == HTCLIENT && Active()) {
-                SetCursor(Captured() ? nullptr : LoadCursorW(nullptr, IDC_ARROW));
+                SetCursor(Captured() || PadOverlay() ? nullptr : LoadCursorW(nullptr, IDC_ARROW));
                 *result = TRUE;
                 return true;
             }
             break;
         case WM_ACTIVATE:
-            Capture(hwnd, LOWORD(wp) != WA_INACTIVE && !g_released.load());
+            Capture(hwnd, LOWORD(wp) != WA_INACTIVE && !g_released.load() && !overlay::g_open.load());
             break;
+        case kRefresh:
+            // held and hidden while the overlay is a controller's
+            Capture(hwnd, Captured() || (PadOverlay() && Active()));
+            if (!Captured() && !PadOverlay()) SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            // the click that closed the overlay presses nothing in the game
+            g_swallow = true;
+            *result = 0;
+            return true;
         case WM_SIZE:
         case WM_MOVE:
             if (!Windowed()) g_released = false;
@@ -330,7 +351,27 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
     return false;
 }
 
+void Refresh() {
+    if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kRefresh, 0, 0);
+}
+
 void Pad(int port, input::Pad& pad) {
+    // a controller's both sticks clicked open or close the overlay, once until let go: each port on its own, as the
+    // ports are polled in turn; while the overlay is open the game gets no input
+    constexpr uint16_t kBothThumbs = 0xC0;  // left and right thumb, input::Pad's buttons
+    static std::array<std::atomic<bool>, 4> thumbs_held{};
+    if (port >= 0 && port < int(thumbs_held.size())) {
+        bool thumbs = (pad.buttons & kBothThumbs) == kBothThumbs;
+        if (thumbs && !thumbs_held[port].exchange(true)) overlay::Toggle(true);
+        if (!thumbs) thumbs_held[port] = false;
+    }
+    if (overlay::g_open.load()) {
+        bool connected = port == 0 || pad.connected;
+        pad = input::Pad{};
+        pad.connected = connected;
+        g_a_only = AOnly::Both;
+        return;
+    }
     if (port != 0) return;
     pad.connected = true;
     bool pad_a = pad.analog[0] > kAnalogHeld;

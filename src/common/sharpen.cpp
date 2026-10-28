@@ -112,6 +112,9 @@ private:
 
 }  // namespace
 
+float Strength() { return g_sharpness.load(); }
+void SetStrength(float v) { g_sharpness = std::clamp(v, 0.0f, 1.0f); }
+
 void Install() { gpu::SetExtension(std::make_unique<Effects>()); }
 
 void Load(const void* table) {

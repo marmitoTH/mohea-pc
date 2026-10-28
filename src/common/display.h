@@ -10,7 +10,8 @@ namespace display {
 // window thread, before the input's: true takes the message
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
 
-// each frame, inside ImGui's: what F9, F8, F7 or F6 switched to, for two seconds
+// each frame, inside ImGui's: the overlay (F1, common/overlay.h), and what F9, F8, F7 or F6 switched to, for two
+// seconds
 void Ui();
 
 }  // namespace display

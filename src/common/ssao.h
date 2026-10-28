@@ -11,6 +11,10 @@ namespace ssao {
 
 extern bool g_on;
 
+// the strength, 0 to 1, any thread
+float Strength();
+void SetStrength(float v);
+
 // settings file: ssao_strength (ssao is a GameInfo option)
 void Load(const void* table);
 void Save(void* table);

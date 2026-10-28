@@ -11,6 +11,10 @@ extern bool g_on;
 // before the backend is made (GameInfo::init): the renderer extension, with the ambient occlusion (common/ssao.h)
 void Install();
 
+// the sharpness, 0 to 1, any thread
+float Strength();
+void SetStrength(float v);
+
 // settings file: sharpness (sharpening is a GameInfo option)
 void Load(const void* table);
 void Save(void* table);

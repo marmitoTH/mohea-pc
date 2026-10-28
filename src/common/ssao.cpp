@@ -105,6 +105,9 @@ float4 comp(float4 pos : SV_Position) : SV_Target {
 
 }  // namespace
 
+float Strength() { return g_strength.load(); }
+void SetStrength(float v) { g_strength = std::clamp(v, 0.0f, 1.0f); }
+
 void Load(const void* table) {
     const toml::table& t = *static_cast<const toml::table*>(table);
     g_strength = std::clamp(float(t["ssao_strength"].value_or(double(g_strength.load()))), 0.0f, 1.0f);

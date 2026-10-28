@@ -18,6 +18,9 @@ void Save(void* table);
 void Window(void* hwnd);
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
 
+// the overlay (common/overlay.h) opened or closed, any thread: the window takes the mouse or lets it go
+void Refresh();
+
 // a polled controller: the keys and the mouse merged into port 0, which is connected without a controller too
 void Pad(int port, input::Pad& pad);
 

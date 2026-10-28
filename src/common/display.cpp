@@ -16,6 +16,7 @@
 
 #include "app/app.h"
 #include "common/options.h"
+#include "common/overlay.h"
 #include "common/sharpen.h"
 #include "common/ssao.h"
 #include "core/log.h"
@@ -98,6 +99,12 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
     bool first = !(lp & (1 << 30));  // not a key held down repeating
     switch (msg) {
         case WM_KEYDOWN:
+            // F1 opens and closes the overlay, Esc closes it
+            if (wp == VK_F1 || (wp == VK_ESCAPE && overlay::g_open.load())) {
+                if (first) overlay::Toggle();
+                *result = 0;
+                return true;
+            }
             if (wp == VK_F11) {
                 if (first) Toggle();
                 *result = 0;
@@ -144,6 +151,7 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
 }
 
 void Ui() {
+    overlay::Draw();
     if (clock::now() >= g_notice_until) return;
     const char* text = g_notice;
     ImDrawList* draw = ImGui::GetForegroundDrawList();
