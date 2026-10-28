@@ -173,8 +173,20 @@ bool Active() {
 }
 
 // in game the cursor is hidden and held at the window's centre, so the mouse only turns the view and clicks stay in
-// the game; another window taking the focus lets it go. Window thread only: ShowCursor counts per thread
+// the game; another window taking the focus lets it go. Windowed, Esc lets it go too (the window can be resized) until
+// a click in the window, which presses nothing: the mouse's buttons are not read until they are all up again. Window
+// thread only: ShowCursor counts per thread
 bool g_captured = false;
+std::atomic<bool> g_released{false}, g_swallow{false};
+
+bool Windowed() { return app::Get().display_mode == app::DisplayMode::Windowed; }
+
+// the mouse turns the view and its buttons press
+bool Captured() { return Active() && !g_released.load(); }
+
+bool MouseButton(int key) {
+    return key == VK_LBUTTON || key == VK_RBUTTON || key == VK_MBUTTON || key == VK_XBUTTON1 || key == VK_XBUTTON2;
+}
 
 void Capture(HWND hwnd, bool on) {
     if (on != g_captured) {
@@ -271,7 +283,7 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
                     UINT(-1) ||
                 raw.header.dwType != RIM_TYPEMOUSE || (raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
                 break;
-            if (!Active()) break;
+            if (!Captured()) break;
             Capture(hwnd, true);
             std::lock_guard lock(g_lock);
             g_motion[g_motion_next++ % kMotionSlots] = {clock::now(), raw.data.mouse.lLastX, raw.data.mouse.lLastY};
@@ -280,21 +292,39 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
             break;
         }
         case WM_MOUSEWHEEL:
-            (GET_WHEEL_DELTA_WPARAM(wp) > 0 ? g_wheel_up : g_wheel_down) = Ticks(clock::now());
+            if (Captured()) (GET_WHEEL_DELTA_WPARAM(wp) > 0 ? g_wheel_up : g_wheel_down) = Ticks(clock::now());
+            break;
+        case WM_KEYDOWN:
+            if (wp == VK_ESCAPE && Windowed() && !(lp & (1 << 30))) {
+                g_released = true;
+                Capture(hwnd, false);
+                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            }
+            break;
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+            if (g_released.load() && Active()) {
+                g_released = false;
+                g_swallow = true;
+                Capture(hwnd, true);
+            }
             break;
         case WM_SETCURSOR:
+            // the window's class has no cursor: over the game the arrow while the mouse is let go
             if (LOWORD(lp) == HTCLIENT && Active()) {
-                SetCursor(nullptr);
+                SetCursor(Captured() ? nullptr : LoadCursorW(nullptr, IDC_ARROW));
                 *result = TRUE;
                 return true;
             }
             break;
         case WM_ACTIVATE:
-            Capture(hwnd, LOWORD(wp) != WA_INACTIVE);
+            Capture(hwnd, LOWORD(wp) != WA_INACTIVE && !g_released.load());
             break;
         case WM_SIZE:
         case WM_MOVE:
-            if (Active()) Capture(hwnd, true);
+            if (!Windowed()) g_released = false;
+            if (Captured()) Capture(hwnd, true);
             break;
     }
     return false;
@@ -313,8 +343,16 @@ void Pad(int port, input::Pad& pad) {
     float rate_x = 0.0f, rate_y = 0.0f;
     {
         std::lock_guard lock(g_lock);
+        // the mouse's buttons while it is captured and not swallowing the click that captured it
+        bool mouse = Captured();
+        if (g_swallow.load()) {
+            bool down = false;
+            for (int k : {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON}) down = down || (GetAsyncKeyState(k) & 0x8000);
+            if (down) mouse = false;
+            else g_swallow = false;
+        }
         for (int i = 0; i < kTargetCount; i++)
-            for (int k : g_keys[i]) held[i] = held[i] || Held(k, now);
+            for (int k : g_keys[i]) held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
         int sum_x = 0, sum_y = 0;
         for (const Motion& m : g_motion)
             if (now - m.t < kRateWindow) {
@@ -367,7 +405,7 @@ AOnly AButton() {
 void TakeLook(float& yaw, float& pitch) {
     g_direct_until = Ticks(clock::now() + kDirectHold);
     int x = g_look_x.exchange(0), y = g_look_y.exchange(0);
-    if (!Active()) return;
+    if (!Captured()) return;
     float k = kRadiansPerCount * float(g_mouse_sensitivity) / 100.0f;
     yaw = float(x) * k;
     pitch = float(g_invert_mouse_y ? y : -y) * k;
