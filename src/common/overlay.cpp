@@ -81,6 +81,14 @@ void Draw() {
         s.antialiasing = kAaSamples[aa];
         app::Save();
     }
+    int af = 0;
+    for (int i = 0; i < 5; i++)
+        if (s.aniso == kAaSamples[i]) af = i;
+    // the same steps as the antialiasing's: off (as the game asks), 2x, 4x, 8x, 16x
+    if (ImGui::Combo("Anisotropic filtering", &af, kAa, 5)) {
+        s.aniso = kAaSamples[af];
+        app::Save();
+    }
     if (ImGui::Checkbox("VSync", &s.vsync)) app::Save();
     if (ImGui::Checkbox("60 FPS in game", &g_sixty_fps)) app::Save();
 
