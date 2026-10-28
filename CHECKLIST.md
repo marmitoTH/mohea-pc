@@ -55,6 +55,7 @@ end of this file.
   - New patch: edit under `sdk/`, then `git -C sdk diff > sdk_patches/NNNN-name.patch` (add the explanation on top)
   - On an SDK update: revert `sdk/` (`git -C sdk checkout .`), move the submodule, reconfigure, refresh any patch that fails
   - `0001-d3d8-SetViewport-accepts-null.patch`: the §7 boot fix
+  - `0002-app-window-size-and-render-scale.patch`: windowed, the render resolution follows the window
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`

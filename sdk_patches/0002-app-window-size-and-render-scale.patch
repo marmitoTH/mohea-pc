@@ -1,0 +1,134 @@
+Windowed, the window has its own size, window_width x window_height in the settings (1280 x 720 by default), and the
+render scale follows its client height: set once a resize ends, not on each step of a drag, and kept for the next
+start. Maximized, and in full screen, width x height (0 the desktop) applies as before.
+
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+index 02021f2..55cdf7b 100644
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -19,6 +19,7 @@ inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: just under the monito
+ struct Settings {
+     DisplayMode display_mode = DisplayMode::Borderless;
+     uint32_t width = 0, height = 0;  // 0 is the desktop mode
++    uint32_t window_width = 1280, window_height = 720;  // the window's client size, windowed and not maximized
+     uint32_t render_percent = 100;   // of the output height
+     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
+     bool vsync = true;
+@@ -41,6 +42,8 @@ struct Mode {
+ Mode Desktop();
+ Mode Output();
+ float RenderScale(uint32_t guest_height);
++// windowed and not maximized the render scale follows the window: its client height, 0 otherwise (window thread)
++void SetWindowHeight(uint32_t height);
+ // the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
+ bool Widescreen();
+ 
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+index 7fd948a..3828127 100644
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -88,7 +88,6 @@ void ApplyNow() {
+         ChangeDisplaySettingsExW(mi.szDevice, nullptr, nullptr, 0, nullptr);
+         g_mode_changed = false;
+     }
+-    Mode out = Output();
+     LONG_PTR visible = IsWindowVisible(g_hwnd) ? WS_VISIBLE : 0;  // a window held back for a splash or handover stays so
+     DEVMODEW desktop{};
+     desktop.dmSize = sizeof(desktop);
+@@ -105,10 +104,11 @@ void ApplyNow() {
+         GetMonitorInfoW(mon, &mi);
+     }
+     if (s.display_mode == DisplayMode::Windowed) {
+-        RECT r{0, 0, LONG(out.width), LONG(out.height)};
+-        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+-        int w = r.right - r.left, h = r.bottom - r.top;
++        // the window's own size, within the work area
+         const RECT& a = mi.rcWork;
++        RECT r{0, 0, LONG(s.window_width ? s.window_width : 1280), LONG(s.window_height ? s.window_height : 720)};
++        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
++        int w = std::min<int>(r.right - r.left, a.right - a.left), h = std::min<int>(r.bottom - r.top, a.bottom - a.top);
+         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | visible);
+         SetWindowPos(g_hwnd, HWND_NOTOPMOST, a.left + (a.right - a.left - w) / 2, a.top + (a.bottom - a.top - h) / 2, w, h,
+                      SWP_FRAMECHANGED);
+@@ -119,6 +119,25 @@ void ApplyNow() {
+     }
+ }
+ 
++// the window's size for the render scale, windowed: its client height unless maximized, where the full screen
++// resolution applies; once a resize ends (not on each step of a drag), and kept for the next start
++bool g_sizing = false;
++void TrackWindowSize(HWND hwnd) {
++    Settings& s = Get();
++    RECT rc{};
++    GetClientRect(hwnd, &rc);
++    if (s.display_mode != DisplayMode::Windowed || IsZoomed(hwnd)) {
++        SetWindowHeight(0);
++    } else if (!IsIconic(hwnd) && rc.right > 0 && rc.bottom > 0) {
++        SetWindowHeight(uint32_t(rc.bottom));
++        if (s.window_width != uint32_t(rc.right) || s.window_height != uint32_t(rc.bottom)) {
++            s.window_width = uint32_t(rc.right);
++            s.window_height = uint32_t(rc.bottom);
++            Save();
++        }
++    }
++}
++
+ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+     {
+         std::lock_guard lock(UiLock());
+@@ -150,6 +169,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+                 PostMessageW(hwnd, kApplyDisplay, 0, 0);
+             }
+             break;
++        case WM_ENTERSIZEMOVE:
++            g_sizing = true;
++            break;
++        case WM_EXITSIZEMOVE:
++            g_sizing = false;
++            TrackWindowSize(hwnd);
++            break;
++        case WM_SIZE:
++            if (!g_sizing && wp != SIZE_MINIMIZED) TrackWindowSize(hwnd);
++            break;
+         case kApplyDisplay:
+             if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+             ApplyNow();
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+index 075b3b7..135d1ef 100644
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -46,6 +46,8 @@ void Load() {
+         if (mode == kModes[i]) s.display_mode = DisplayMode(i);
+     s.width = t["width"].value_or(s.width);
+     s.height = t["height"].value_or(s.height);
++    s.window_width = t["window_width"].value_or(s.window_width);
++    s.window_height = t["window_height"].value_or(s.window_height);
+     s.render_percent = t["render_percent"].value_or(s.render_percent);
+     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
+     s.vsync = t["vsync"].value_or(s.vsync);
+@@ -68,6 +70,8 @@ toml::table Table() {
+     toml::table t{{"display_mode", kModes[uint32_t(s.display_mode)]},
+                   {"width", int64_t(s.width)},
+                   {"height", int64_t(s.height)},
++                  {"window_width", int64_t(s.window_width)},
++                  {"window_height", int64_t(s.window_height)},
+                   {"render_percent", int64_t(s.render_percent)},
+                   {"fps_cap", int64_t(s.fps_cap)},
+                   {"vsync", s.vsync},
+@@ -152,8 +156,15 @@ Mode CachedOutput() {
+     return mode;
+ }
+ 
++namespace {
++std::atomic<uint32_t> g_window_height{0};
++}  // namespace
++
++void SetWindowHeight(uint32_t height) { g_window_height = height; }
++
+ float RenderScale(uint32_t guest_height) {
+-    float h = CachedOutput().height * (Get().render_percent / 100.0f);
++    uint32_t window = Get().display_mode == DisplayMode::Windowed ? g_window_height.load() : 0;
++    float h = (window ? window : CachedOutput().height) * (Get().render_percent / 100.0f);
+     return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
+ }
+ 
