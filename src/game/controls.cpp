@@ -12,6 +12,9 @@
 //
 // Here the mouse's motion since the last frame becomes an angle, added to the player's turn after all of that: the
 // rate each turn gets is raised by exactly what makes the angle change by it this frame. A controller keeps its feel.
+#include <algorithm>
+#include <cmath>
+
 #include "common/pc_input.h"
 #include "xdk/hle.h"
 
@@ -36,10 +39,20 @@ X86_FUNC(sub_00114980) {
     __imp__sub_00114980(ctx, base);
 }
 
-// the look handler: the mouse's angles for this frame, for the player only
+// the look handler: the mouse's angles for this frame, for the player only. Aiming (the player's +0x1C0 bit 25) the
+// handler slows the stick by the field of view (+0x138, degrees) over 70, the view at rest; the mouse slows by that to
+// the power 0.8, a little less, so a scope's zoom neither makes it race nor drag
 X86_EXTERN_FUNC(__imp__sub_00114D20);
 X86_FUNC(sub_00114D20) {
-    if (ctx.ecx == g_player) pc_input::TakeLook(g_yaw, g_pitch);
+    if (ctx.ecx == g_player) {
+        pc_input::TakeLook(g_yaw, g_pitch);
+        if (*reinterpret_cast<uint32_t*>(base + ctx.ecx + 0x1C0) >> 25 & 1) {
+            float fov = *reinterpret_cast<float*>(base + ctx.ecx + 0x138);
+            float k = std::pow(std::clamp(fov / 70.0f, 0.02f, 1.0f), 0.8f);
+            g_yaw *= k;
+            g_pitch *= k;
+        }
+    }
     __imp__sub_00114D20(ctx, base);
     g_yaw = g_pitch = 0.0f;
 }

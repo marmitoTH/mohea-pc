@@ -92,6 +92,11 @@ std::array<std::vector<int>, kTargetCount> g_keys = Defaults();
 std::atomic<HWND> g_hwnd{nullptr};
 std::atomic<AOnly> g_a_only{AOnly::Both};
 
+// SetPlay: the player control ran lately (clock ticks until), and the player looks through a scope
+constexpr auto kPlayHold = std::chrono::milliseconds(150);
+std::atomic<int64_t> g_play_until{0};
+std::atomic<bool> g_scoped{false};
+
 // the wheel's notches are presses held for a moment, long enough for a poll at the game's frame rate to see them
 constexpr auto kWheelHold = std::chrono::milliseconds(80);
 std::atomic<int64_t> g_wheel_up{0}, g_wheel_down{0};  // clock ticks of the last notch
@@ -351,6 +356,11 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
     return false;
 }
 
+void SetPlay(bool scoped) {
+    g_scoped = scoped;
+    g_play_until = Ticks(clock::now() + kPlayHold);
+}
+
 void Refresh() {
     if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kRefresh, 0, 0);
 }
@@ -380,6 +390,7 @@ void Pad(int port, input::Pad& pad) {
         return;
     }
     clock::time_point now = clock::now();
+    bool play = Ticks(now) < g_play_until.load(), scoped = g_scoped.load();
     std::array<bool, kTargetCount> held{};
     float rate_x = 0.0f, rate_y = 0.0f;
     {
@@ -393,7 +404,19 @@ void Pad(int port, input::Pad& pad) {
             else g_swallow = false;
         }
         for (int i = 0; i < kTargetCount; i++)
-            for (int k : g_keys[i]) held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
+            for (int k : g_keys[i]) {
+                // the wheel only in play, and not as bound in a scope (below)
+                if (k == kWheelUp || k == kWheelDown) {
+                    if (play && !scoped) held[i] = held[i] || Held(k, now);
+                    continue;
+                }
+                held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
+            }
+        // in a scope the wheel zooms: the d-pad's up narrows the field of view (in), its down widens it (out)
+        if (play && scoped) {
+            held[kDpadUp] = held[kDpadUp] || Held(kWheelUp, now);
+            held[kDpadDown] = held[kDpadDown] || Held(kWheelDown, now);
+        }
         int sum_x = 0, sum_y = 0;
         for (const Motion& m : g_motion)
             if (now - m.t < kRateWindow) {

@@ -5,6 +5,11 @@
 // something is in reach, to sub_000EE730. With a key bound to one alone (common/pc_input.h AButton): reload's 0x12
 // reloads even with something in reach and is no on a mounted gun, and 0xD1 is no; use's 0x12 is no unless something
 // is in reach or the player is on a mounted gun, so it never reloads.
+//
+// The same check each frame tells the input the player is in play, and whether the player looks through a scope, for
+// the mouse wheel (common/pc_input.h SetPlay): the scope's zoom (sub_0011B190 in, sub_0011B340 out, on the d-pad's
+// up and down, stepping the field of view at the player's +0x138 down or up) works while the player's +0x1C0 has bit 25 and not bit 30 and its weapon holder (+0x1CC) is in mode 3
+// (+0x1278) with its scope (+0x1280).
 #include "common/pc_input.h"
 #include "xdk/hle.h"
 
@@ -43,6 +48,11 @@ X86_FUNC(sub_00115990) {
     if (from == kControlCheck) {
         g_player = self;
         g_in_reach = ctx.eax != 0;
+        uint32_t flags = *reinterpret_cast<uint32_t*>(base + self + 0x1C0);
+        uint32_t holder = *reinterpret_cast<uint32_t*>(base + self + 0x1CC);
+        bool scoped = (flags >> 25 & 1) && !(flags >> 30 & 1) && holder &&
+                      *reinterpret_cast<uint32_t*>(base + holder + 0x1278) == 3 && *(base + holder + 0x1280);
+        pc_input::SetPlay(scoped);
     }
     if (from == kReloadCheck && pc_input::AButton() == pc_input::AOnly::Reload) ctx.eax = 0;
 }

@@ -18,6 +18,10 @@ void Save(void* table);
 void Window(void* hwnd);
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
 
+// the game's thread, from the player control each frame it runs (game/actions.cpp): the player is in play, and looks
+// through a scope or not. The mouse wheel works only in play: zooming in a scope (up in, down out), else as bound
+void SetPlay(bool scoped);
+
 // the overlay (common/overlay.h) opened or closed, any thread: the window takes the mouse or lets it go
 void Refresh();
 
