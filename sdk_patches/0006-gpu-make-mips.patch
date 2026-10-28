@@ -1,0 +1,152 @@
+Mip chains for one level textures: a 2D texture of 8 bit colour or DXT with a single level is made BGRA with a whole
+mip chain, its level decoded (DXT too) and halved down to 1 x 1 by 2 x 2 means as it uploads. The title asks to
+filter across mip levels on textures that have none, which shimmered in the distance and left anisotropic filtering
+nothing to do; draws that filter without mips still read the top level only.
+
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index e97d4db..641dd99 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -356,6 +356,7 @@ struct Tex {
+     const Tex* swap = nullptr;  // the texture pack's image drawn in its place
+     uint64_t pack_key = 0;      // its pack image is still loading
+     uint32_t pack_gen = 0;      // texturedumper::Generation the key was taken at, 0 after new bytes
++    bool mips = false;          // a one level texture given a mip chain here, BGRA (MakesMips)
+ };
+ 
+ struct PsoKey {
+@@ -1709,6 +1710,96 @@ ID3D12Resource* D3D12Backend::BindTargetTexture(const State& s, int stage, const
+     return t.res.Get();
+ }
+ 
++// A 2D texture of one level, 8 bit colour or DXT, gets a whole mip chain, made from its level as it uploads: the
++// title asks to filter across mip levels on textures that have none, which then shimmered in the distance and kept
++// anisotropic filtering from doing anything
++bool MakesMips(const TextureDesc& d, const FormatInfo& fi) {
++    bool colour = fi.host == Host::BGRA8 || fi.host == Host::BC1 || fi.host == Host::BC2 || fi.host == Host::BC3;
++    return colour && !fi.depth && d.levels == 1 && !d.cube && d.depth == 1 && std::max(d.width, d.height) >= 4;
++}
++
++uint32_t MipCount(uint32_t w, uint32_t h) {
++    uint32_t n = 1;
++    while ((w | h) > 1) {
++        w = std::max(w >> 1, 1u);
++        h = std::max(h >> 1, 1u);
++        n++;
++    }
++    return n;
++}
++
++// a DXT block's 4 colours, BGRA: c0 and c1 565, then two between (or one and transparent black, DXT1 with c0 <= c1)
++void BlockColours(const uint8_t* b, bool dxt1, uint8_t out[4][4]) {
++    uint16_t c[2] = {uint16_t(b[0] | b[1] << 8), uint16_t(b[2] | b[3] << 8)};
++    for (int i = 0; i < 2; i++) {
++        out[i][0] = uint8_t((c[i] & 31) * 255 / 31);
++        out[i][1] = uint8_t((c[i] >> 5 & 63) * 255 / 63);
++        out[i][2] = uint8_t((c[i] >> 11) * 255 / 31);
++        out[i][3] = 255;
++    }
++    bool four = !dxt1 || c[0] > c[1];
++    for (int k = 0; k < 3; k++) {
++        out[2][k] = uint8_t(four ? (2 * out[0][k] + out[1][k]) / 3 : (out[0][k] + out[1][k]) / 2);
++        out[3][k] = uint8_t(four ? (out[0][k] + 2 * out[1][k]) / 3 : 0);
++    }
++    out[2][3] = 255;
++    out[3][3] = four ? 255 : 0;
++}
++
++// DXT1, 3 or 5 blocks (rows pitch bytes apart) into w x h BGRA
++std::vector<uint8_t> DecodeDxt(Host host, const std::vector<uint8_t>& px, uint32_t pitch, uint32_t w, uint32_t h) {
++    std::vector<uint8_t> out(size_t(w) * h * 4);
++    uint32_t block = host == Host::BC1 ? 8 : 16;
++    for (uint32_t by = 0; by < (h + 3) / 4; by++)
++        for (uint32_t bx = 0; bx < (w + 3) / 4; bx++) {
++            size_t at = size_t(by) * pitch + size_t(bx) * block;
++            if (at + block > px.size()) continue;
++            const uint8_t* b = &px[at];
++            const uint8_t* colour = host == Host::BC1 ? b : b + 8;
++            uint8_t c[4][4];
++            BlockColours(colour, host == Host::BC1, c);
++            // DXT5's alpha: two ends and six or four between
++            uint8_t a[8] = {};
++            if (host == Host::BC3) {
++                a[0] = b[0];
++                a[1] = b[1];
++                for (int i = 2; i < 8; i++)
++                    a[i] = a[0] > a[1] ? uint8_t(((8 - i) * a[0] + (i - 1) * a[1]) / 7)
++                           : i < 6     ? uint8_t(((6 - i) * a[0] + (i - 1) * a[1]) / 5)
++                                       : uint8_t(i == 6 ? 0 : 255);
++            }
++            uint64_t abits = 0;
++            for (int i = 0; i < 6; i++) abits |= uint64_t(b[2 + i]) << (8 * i);
++            uint32_t idx = colour[4] | colour[5] << 8 | colour[6] << 16 | uint32_t(colour[7]) << 24;
++            for (uint32_t t = 0; t < 16; t++) {
++                uint32_t x = bx * 4 + t % 4, y = by * 4 + t / 4;
++                if (x >= w || y >= h) continue;
++                uint8_t* o = &out[(size_t(y) * w + x) * 4];
++                std::memcpy(o, c[idx >> (2 * t) & 3], 4);
++                if (host == Host::BC2) o[3] = uint8_t((b[t / 2] >> (4 * (t & 1)) & 15) * 17);
++                if (host == Host::BC3) o[3] = a[abits >> (3 * t) & 7];
++            }
++        }
++    return out;
++}
++
++// the next level down: each pixel the mean of the 2 x 2 above it (one row or column at an odd edge)
++std::vector<uint8_t> HalveLevel(const std::vector<uint8_t>& px, uint32_t w, uint32_t h) {
++    uint32_t nw = std::max(w >> 1, 1u), nh = std::max(h >> 1, 1u);
++    std::vector<uint8_t> out(size_t(nw) * nh * 4);
++    for (uint32_t y = 0; y < nh; y++)
++        for (uint32_t x = 0; x < nw; x++) {
++            uint32_t x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
++            uint32_t y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
++            for (int k = 0; k < 4; k++) {
++                uint32_t sum = px[(size_t(y0) * w + x0) * 4 + k] + px[(size_t(y0) * w + x1) * 4 + k] +
++                               px[(size_t(y1) * w + x0) * 4 + k] + px[(size_t(y1) * w + x1) * 4 + k];
++                out[(size_t(y) * nw + x) * 4 + k] = uint8_t((sum + 2) / 4);
++            }
++        }
++    return out;
++}
++
+ bool SameTexture(const Tex& tx, const TextureDesc& d) {
+     return tx.res && tx.d.format == d.format && tx.d.width == d.width && tx.d.height == d.height &&
+            tx.d.depth == d.depth && tx.d.levels == d.levels && tx.d.cube == d.cube && tx.d.pitch == d.pitch;
+@@ -1725,6 +1816,12 @@ bool D3D12Backend::CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo
+     uint32_t w = d.width;
+     uint32_t h = d.height;
+     tx.levels = d.levels;
++    if (MakesMips(d, fi)) {
++        tx.mips = true;
++        tx.fmt = kBgra;
++        tx.levels = MipCount(w, h);
++        bc = false;
++    }
+     if (bc && ((w & 3) || (h & 3))) {
+         w = (w + 3) & ~3u;
+         h = (h + 3) & ~3u;
+@@ -1788,6 +1885,24 @@ void D3D12Backend::UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo
+     Transition(tx.res.Get(), st, D3D12_RESOURCE_STATE_COPY_DEST);
+     uint32_t faces = d.cube ? 6 : 1;
+     std::vector<uint8_t> px;
++    if (tx.mips) {
++        // the one level as BGRA, then each level down from it
++        uint32_t pitch;
++        DecodeLevel(d, 0, 0, p, colours, px, pitch);
++        if (ext_) ext_->Decoded(d, fi, 0, 0, px, pitch, tx.flags);
++        uint32_t w = d.width, h = d.height;
++        if (fi.compressed) px = DecodeDxt(fi.host, px, pitch, w, h);
++        for (uint32_t l = 0; l < tx.levels; l++) {
++            if (l) {
++                px = HalveLevel(px, w, h);
++                w = std::max(w >> 1, 1u);
++                h = std::max(h >> 1, 1u);
++            }
++            UploadTextureLevel(tx, 0, l, px, w * 4);
++        }
++        Transition(tx.res.Get(), st, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
++        return;
++    }
+     for (uint32_t f = 0; f < faces; f++) {
+         for (uint32_t l = 0; l < tx.levels; l++) {
+             uint32_t pitch;
