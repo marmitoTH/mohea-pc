@@ -18,7 +18,7 @@ bool g_on = true;
 
 namespace {
 
-std::atomic<float> g_sharpness{0.5f};
+std::atomic<float> g_sharpness{0.3f};
 
 // CAS without scaling: a 3x3 neighbourhood, the cross's weight from the local contrast so edges already sharp take
 // little and soft detail takes more; the colour is the console's, unconverted. The neighbours are a console pixel
