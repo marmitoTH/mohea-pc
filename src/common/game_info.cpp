@@ -57,6 +57,8 @@ const app::GameInfo app::kGame = {
                 {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
                 {"sixty_fps", &g_sixty_fps, nullptr},
                 {"fov", nullptr, &g_fov},
+                {"drop_seconds", nullptr, &g_drop_seconds},
+                {"drops_forever", &g_drops_forever, nullptr},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr},
                 {"pool_guard", &g_pool_guard, nullptr}},

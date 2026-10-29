@@ -10,5 +10,10 @@ extern bool g_sixty_fps;
 extern uint32_t g_fov;
 float RestFov();
 
+// game/drops.cpp: how long a fallen enemy's drops stay, seconds (23 to 600, 23 the game's, 60 by default), or for good
+extern uint32_t g_drop_seconds;
+extern bool g_drops_forever;
+uint32_t DropSeconds();
+
 // game/pool_guard.cpp: the game's pools checked as they are used, for tracing crashes (on in dev and debug builds)
 extern bool g_pool_guard;

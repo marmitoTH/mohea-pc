@@ -100,6 +100,20 @@ void Draw() {
         app::Save();
     }
 
+    Heading("Gameplay");
+    // what a fallen enemy drops: ammo, medkits, grenades, its weapon
+    if (ImGui::Checkbox("Drops never disappear", &g_drops_forever)) app::Save();
+    ImGui::BeginDisabled(g_drops_forever);
+    int drop = int(DropSeconds());
+    if (ImGui::SliderInt("Drops disappear after", &drop, 23, 600, "%d seconds")) g_drop_seconds = uint32_t(drop);
+    SaveAfter();
+    ImGui::SameLine();
+    if (ImGui::Button("Default##drops")) {
+        g_drop_seconds = 60;
+        app::Save();
+    }
+    ImGui::EndDisabled();
+
     Heading("Color");
     // the frame as shown, menus and HUD too (the runtime's present)
     if (ImGui::SliderFloat("Gamma", &s.gamma, 0.5f, 2.0f, "%.2f")) s.gamma = std::clamp(s.gamma, 0.5f, 2.0f);
