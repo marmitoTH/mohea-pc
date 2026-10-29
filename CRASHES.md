@@ -35,6 +35,40 @@ Tools in `src/game/` for following a problem at run time:
 
 ## Known crashes
 
+### 2026-10-29: out of sound buffers (mission 1_21)
+
+**Status:** open, cause unknown. Seen once.
+
+- **When:** 140 s into a dev build session (log `mohea_119.log`, dump `MOHEA.2026.10.29_19.04.25.dmp`), in mission 1_21,
+  on guest thread 14. The new `unlimited_ammo` option was on for the first time, with `squad_immortal` and
+  `player_invincible`. The pool guard reported nothing.
+- **Fault:** `MOHEA.dll+0x5134E1`, in `sub_0019624E`, reading guest `00000008`:
+
+  ```
+  00196286 call 0x0019B727       ; pop a buffer from the chosen list: none (esi 0)
+  0019628E push [esi+0x08]       ; faults
+  ```
+
+- **The buffers:** at a level's start (`sub_00197xxx`) the game creates two pools of DirectSound buffers (`sub_00196143`,
+  48 kHz, Xbox ADPCM or 16-bit PCM), each a free list at `0x523990` and `0x52399C` (count at +8): `0x94` less
+  `[0x523A10]` of one, 28 of the other. A sound takes a free buffer of its format. When its format has none,
+  `sub_0019624E` takes one from the other list (the one with more), releases its DirectSound buffer and makes one of the
+  needed format. With both lists empty it picks no list (`eax` -1, the "list" at `0x523984`), pops nothing and reads
+  `[0+8]`.
+- **Call chain:** `sub_00081190` → `sub_001AD630` → … → `sub_001957AE` → `sub_0019AFC8` → `sub_0019AB81` →
+  `sub_0019F360` → `sub_0019624E`.
+- **Theories:**
+  1. Buffers are not given back: a sound's end goes unnoticed (for example, the SDK's DirectSound reporting a buffer as
+     still playing), so the pool drains over time. Firing without reloads (`unlimited_ammo`) would drain it faster.
+  2. Too many sounds at once. Unlikely on its own with a pool of over a hundred.
+- **Next steps:**
+  1. Log both lists' free counts every few seconds in a dev build: a steady fall points to a leak, a dip under heavy
+     fire to a burst.
+  2. If it leaks, find where the game gives a buffer back, and what it checks (a DirectSound status call) to decide a
+     sound has ended.
+  3. Whatever the cause, `sub_0019624E` could be made to fail without crashing. That needs its callers read first: they
+     pop from the list it has just filled.
+
 ### 2026-10-28: corrupt free list in a game pool (mission 1_8)
 
 **Status:** open, cause unknown. Seen once.
