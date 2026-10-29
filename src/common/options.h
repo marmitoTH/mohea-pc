@@ -15,5 +15,8 @@ extern uint32_t g_drop_seconds;
 extern bool g_drops_forever;
 uint32_t DropSeconds();
 
+// game/squad.cpp: the squad the player orders takes no hits
+extern bool g_squad_immortal;
+
 // game/pool_guard.cpp: the game's pools checked as they are used, for tracing crashes (on in dev and debug builds)
 extern bool g_pool_guard;
