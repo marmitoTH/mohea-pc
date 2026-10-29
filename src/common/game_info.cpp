@@ -58,7 +58,8 @@ const app::GameInfo app::kGame = {
                 {"sixty_fps", &g_sixty_fps, nullptr},
                 {"fov", nullptr, &g_fov},
                 {"sharpening", &sharpen::g_on, nullptr},
-                {"ssao", &ssao::g_on, nullptr}},
+                {"ssao", &ssao::g_on, nullptr},
+                {"pool_guard", &g_pool_guard, nullptr}},
     .load = LoadSettings,                         // reads more from the settings file's toml::table
     .save = SaveSettings,                         // writes more into it
     .init = Init,                                 // after the settings load, before the window and boot

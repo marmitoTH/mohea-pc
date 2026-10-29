@@ -147,6 +147,7 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 - [ ] For each spin-wait on another thread releasing something: yield the turn (FH: `cod_job_thread_wait`)
 - [ ] If threads rely on time-sliced ordering (one finishes before the other looks), port FH's `kernel::ShareOneCore` (ticket lock, in FH's `sdk/runtime/kernel/threads.cpp`) and register the affected thread entry points from `kGame.init`
 - [ ] Watch for **game bugs that only crashed rarely on hardware** (FH: RenderWare worlds freed under live objects, `src/game/worlds.cpp`). Use a poisoned heap (FH `debug_heap.cpp` pattern: fill freed blocks with `0xDD`) to surface use-after-free early.
+  - Crashes seen in play, and how to trace one: `CRASHES.md`. The pools are checked with `pool_guard` on (`src/game/pool_guard.cpp`; on in dev builds, a setting in release); one pool already has two guest threads (the 2026-10-28 crash)
 
 ## 9. Graphics (EAGL on the SDK's D3D8 → D3D12 renderer)
 
