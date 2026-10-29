@@ -60,6 +60,7 @@ const app::GameInfo app::kGame = {
                 {"drop_seconds", nullptr, &g_drop_seconds},
                 {"drops_forever", &g_drops_forever, nullptr},
                 {"squad_immortal", &g_squad_immortal, nullptr},
+                {"player_invincible", &g_player_invincible, nullptr},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr},
                 {"pool_guard", &g_pool_guard, nullptr}},
