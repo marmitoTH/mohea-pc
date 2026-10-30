@@ -9,6 +9,7 @@
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
+#include "common/smaa.h"
 #include "common/ssao.h"
 #include "core/log.h"
 
@@ -25,6 +26,12 @@ std::atomic<bool> g_focus{false};
 constexpr const char* kModes[] = {"Fullscreen", "Borderless", "Windowed"};  // app::DisplayMode's order
 constexpr const char* kAa[] = {"Off", "2x", "4x", "8x", "16x"};
 constexpr uint32_t kAaSamples[] = {0, 2, 4, 8, 16};
+
+// the antialiasing, one of: SMAA's presets (smaa::g_preset), the supersampling's samples (app::Settings's), or both
+constexpr const char* kAntialiasing[] = {"Off",      "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra",
+                                         "SSAA 2x",  "SSAA 4x",  "SSAA 8x",     "SSAA 16x", "SSAA 2x + SMAA High"};
+constexpr int kSmaaFirst = 1, kSsaaFirst = 5, kBoth = 9;
+constexpr uint32_t kBothSamples = 2, kBothPreset = 3;
 
 // a slider saves once let go, not at each step of a drag
 void SaveAfter() {
@@ -74,11 +81,19 @@ void Draw() {
         app::Save();
         app::ApplyDisplay();
     }
+    // the supersampling's entry, SMAA's, or the two together (any pair set by hand shows as that)
     int aa = 0;
-    for (int i = 0; i < 5; i++)
-        if (s.antialiasing == kAaSamples[i]) aa = i;
-    if (ImGui::Combo("Antialiasing (SSAA)", &aa, kAa, 5)) {
-        s.antialiasing = kAaSamples[aa];
+    for (int i = 1; i < 5; i++)
+        if (s.antialiasing == kAaSamples[i]) aa = kSsaaFirst + i - 1;
+    if (smaa::Preset()) aa = aa ? kBoth : kSmaaFirst + int(smaa::Preset()) - 1;
+    if (ImGui::Combo("Antialiasing", &aa, kAntialiasing, IM_ARRAYSIZE(kAntialiasing))) {
+        if (aa == kBoth) {
+            s.antialiasing = kBothSamples;
+            smaa::g_preset = kBothPreset;
+        } else {
+            s.antialiasing = aa >= kSsaaFirst ? kAaSamples[aa - kSsaaFirst + 1] : 0;
+            smaa::g_preset = aa >= kSmaaFirst && aa < kSsaaFirst ? uint32_t(aa - kSmaaFirst + 1) : 0;
+        }
         app::Save();
     }
     int af = 0;

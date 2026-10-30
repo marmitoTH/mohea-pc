@@ -3,6 +3,7 @@
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
+#include "common/smaa.h"
 #include "common/ssao.h"
 
 namespace {
@@ -64,6 +65,7 @@ const app::GameInfo app::kGame = {
                 {"unlimited_ammo", &g_unlimited_ammo, nullptr},
                 {"hide_hud", &g_hide_hud, nullptr},
                 {"no_shell_shock", &g_no_shell_shock, nullptr},
+                {"smaa", nullptr, &smaa::g_preset},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr},
                 {"pool_guard", &g_pool_guard, nullptr}},

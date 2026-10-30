@@ -56,7 +56,7 @@ end of this file.
   - On an SDK update: move the submodule, reconfigure, refresh any patch that fails
   - `0001-d3d8-SetViewport-accepts-null.patch`: the §7 boot fix
   - `0002-app-window-size-and-render-scale.patch`: windowed, the render resolution follows the window
-  - `0003-app-gpu-supersampling.patch`: the `antialiasing` setting (supersampling, 2x by default) and the present's box filter
+  - `0003-app-gpu-supersampling.patch`: the `antialiasing` setting (supersampling, off by default: SMAA ultra is, `src/common/smaa.h`) and the present's box filter
   - `0004-gpu-color-grade.patch`: the `gamma`, `contrast` and `saturation` settings, graded at the present
   - `0005-app-anisotropic-default.patch`: `anisotropic_filtering` at 16x by default
   - `0006-gpu-make-mips.patch`: one level textures get a mip chain (so filtering across mips, anisotropic too, works)

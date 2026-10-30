@@ -8,6 +8,7 @@
 
 #include <toml++/toml.hpp>
 
+#include "common/smaa.h"
 #include "common/ssao.h"
 #include "core/log.h"
 #include "gpu/ext.h"
@@ -65,7 +66,8 @@ bool HudStart(const gpu::State& s) {
     return s.rs[gpu::kRsZEnable] && s.simple[gpu::kMZWriteEnable / 4] && s.simple[gpu::kMZFunc / 4] == kZFuncAlways;
 }
 
-// the renderer extension: the ambient occlusion (common/ssao.h) once the solid world is drawn, then the sharpening
+// the renderer extension: the ambient occlusion (common/ssao.h) once the solid world is drawn, then the
+// antialiasing (common/smaa.h) and the sharpening
 class Effects : public gpu::Extension {
 public:
     bool Bound(gpu::Context& ctx, const gpu::State& s, gpu::Target* rt, gpu::Target* ds, bool) override {
@@ -88,10 +90,11 @@ public:
         if (scene_ < kSceneDraws) return false;
         done_ = true;
         ssao_.Hud(frame);
+        bool smoothed = smaa_.Run(ctx, *rt);
         float sharpness = g_sharpness.load();
-        if (!g_on || sharpness <= 0.0f) return false;
+        if (!g_on || sharpness <= 0.0f) return smoothed;
         ID3D12Resource* copy = ctx.Feedback(*rt);
-        if (!copy) return false;
+        if (!copy) return smoothed;
         ctx.Transition(rt->res.Get(), rt->state, D3D12_RESOURCE_STATE_RENDER_TARGET);
         ID3D12Resource* src[3] = {copy, nullptr, nullptr};
         const DXGI_FORMAT fmt[3] = {rt->fmt, rt->fmt, rt->fmt};
@@ -108,6 +111,7 @@ private:
     uint32_t scene_ = 0;
     bool done_ = false;
     ssao::Pass ssao_;
+    smaa::Pass smaa_;
 };
 
 }  // namespace
