@@ -1,11 +1,11 @@
-// How long the things a fallen enemy drops stay (the settings file's drop_seconds, 60 by default, 23 the game's, and
-// drops_forever). An object fades out on a timer (its +0x16C, the timer at +0x84): sub_000B1AB0 (on the timer, stdcall
-// (seconds, share)) starts it, the object showing until the share of the seconds has passed, then fading until they
-// all have, when it goes. A soldier's death (sub_000FB3xx) drops from its drop table (sub_000F9B90: ammo, a medkit, grenades),
-// or its weapon when that dropped nothing; either gets 23 seconds and a share of 0.8696, 20 shown and 3 fading,
-// through sub_000FC680 on the object and its vtable's +0x188 on the object at its +4 (sub_00139540), both on to
-// sub_000B1AB0. Here those four calls, by their return addresses, get the setting's seconds with the same 3 of fading,
-// or seconds no game reaches.
+// How long the things a fallen enemy drops stay (the settings file's drop_seconds, 23 by default as the game has it,
+// and drops_forever). An object fades out on a timer (its +0x16C, the timer at +0x84): sub_000B1AB0 (on the timer,
+// stdcall (seconds, share)) starts it, the object showing until the share of the seconds has passed, then fading until
+// they all have, when it goes. A soldier's death (sub_000FB3xx) drops from its drop table (sub_000F9B90: ammo, a
+// medkit, grenades), or its weapon when that dropped nothing; either gets 23 seconds and a share of 0.8696, 20 shown
+// and 3 fading, through sub_000FC680 on the object and its vtable's +0x188 on the object at its +4 (sub_00139540),
+// both on to sub_000B1AB0. Here those four calls, by their return addresses, get the setting's seconds with the same 3
+// of fading, or seconds no game reaches.
 #include <algorithm>
 #include <iterator>
 
@@ -13,7 +13,7 @@
 #include "core/log.h"
 #include "xdk/hle.h"
 
-uint32_t g_drop_seconds = 60;
+uint32_t g_drop_seconds = 23;
 bool g_drops_forever = false;
 
 uint32_t DropSeconds() { return std::clamp(g_drop_seconds, 23u, 600u); }
