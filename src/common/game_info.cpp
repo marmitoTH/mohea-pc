@@ -63,6 +63,7 @@ const app::GameInfo app::kGame = {
                 {"player_invincible", &g_player_invincible, nullptr},
                 {"unlimited_ammo", &g_unlimited_ammo, nullptr},
                 {"hide_hud", &g_hide_hud, nullptr},
+                {"no_shell_shock", &g_no_shell_shock, nullptr},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr},
                 {"pool_guard", &g_pool_guard, nullptr}},

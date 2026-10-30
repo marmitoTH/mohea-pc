@@ -117,6 +117,7 @@ void Draw() {
     if (ImGui::Checkbox("Squad takes no hits", &g_squad_immortal)) app::Save();
     if (ImGui::Checkbox("Player takes no damage", &g_player_invincible)) app::Save();
     if (ImGui::Checkbox("Unlimited ammo", &g_unlimited_ammo)) app::Save();
+    if (ImGui::Checkbox("No shell shock", &g_no_shell_shock)) app::Save();
 
     Heading("Color");
     // the frame as shown, menus and HUD too (the runtime's present)

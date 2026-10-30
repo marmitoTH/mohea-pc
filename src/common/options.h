@@ -27,5 +27,8 @@ extern bool g_unlimited_ammo;
 // game/hud.cpp: the HUD not drawn
 extern bool g_hide_hud;
 
+// game/shell_shock.cpp: no shell shock from blasts and scripts
+extern bool g_no_shell_shock;
+
 // game/pool_guard.cpp: the game's pools checked as they are used, for tracing crashes (on in dev and debug builds)
 extern bool g_pool_guard;
