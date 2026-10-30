@@ -37,7 +37,14 @@ Tools in `src/game/` for following a problem at run time:
 
 ### 2026-10-29: out of sound buffers (mission 1_21)
 
-**Status:** open, cause unknown. Seen once.
+**Status:** open. Seen twice, both times with more soldiers in the world than the game keeps: likely each soldier
+holds sound buffers until it is taken away.
+
+- **Second sighting (2026-10-30):** 267 s into a dev build session (log `mohea_152.log`, dump
+  `MOHEA.2026.10.30_11.35.55.dmp`), the same fault (`MOHEA.dll+0x5134E1` in `sub_0019624E`, `ecx` `00523984`), with an
+  experimental keep-the-fallen option keeping up to 20 dead soldiers as whole objects (dropped for it). The first
+  sighting had `squad_immortal` on: a squad that never dies. Theory: a soldier's sounds (voice, effects) keep their
+  DirectSound buffers until the soldier is taken away, so more soldiers about, dead or alive, empty the pools.
 
 - **When:** 140 s into a dev build session (log `mohea_119.log`, dump `MOHEA.2026.10.29_19.04.25.dmp`), in mission 1_21,
   on guest thread 14. The new `unlimited_ammo` option was on for the first time, with `squad_immortal` and
