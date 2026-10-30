@@ -60,6 +60,7 @@ end of this file.
   - `0004-gpu-color-grade.patch`: the `gamma`, `contrast` and `saturation` settings, graded at the present
   - `0005-app-anisotropic-default.patch`: `anisotropic_filtering` at 16x by default
   - `0006-gpu-make-mips.patch`: one level textures get a mip chain (so filtering across mips, anisotropic too, works)
+  - `0007-gpu-present-hook.patch`: `Extension::Presenting`, the front buffer before it is presented (the antialiasing and sharpening of a frame with the HUD hidden)
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`

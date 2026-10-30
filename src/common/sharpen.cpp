@@ -9,6 +9,7 @@
 #include <toml++/toml.hpp>
 
 #include "common/marker.h"
+#include "common/options.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
 #include "core/log.h"
@@ -102,23 +103,40 @@ public:
         if (scene_ < kSceneDraws) return false;
         done_ = true;
         ssao_.Hud(frame);
-        bool smoothed = smaa_.Run(ctx, *rt);
-        float sharpness = g_sharpness.load();
-        if (!g_on || sharpness <= 0.0f) return smoothed;
-        ID3D12Resource* copy = ctx.Feedback(*rt);
-        if (!copy) return smoothed;
-        ctx.Transition(rt->res.Get(), rt->state, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        ID3D12Resource* src[3] = {copy, nullptr, nullptr};
-        const DXGI_FORMAT fmt[3] = {rt->fmt, rt->fmt, rt->fmt};
-        // the neighbours a console pixel apart, at least one
-        float step = std::max(1.0f, std::round(float(rt->w) / float(rt->gw)));
-        const float p[8] = {sharpness, 0, 0, 0, step};
-        ctx.Pass(kHlsl, "cas", rt->fmt, ctx.View(*rt), rt->w, rt->h, src, fmt, p, -1.0f);
-        LOG_FIRST(1, "sharpening: %ux%u, sharpness %.2f, step %.0f", rt->w, rt->h, sharpness, step);
-        return true;  // the draw binds its targets again
+        return Finish(ctx, *rt);  // true: the draw binds its targets again
+    }
+
+    // the HUD hidden (game/hud.cpp skips its draw): a 3D frame without the HUD's first draw gets the antialiasing and
+    // the sharpening on its way to the screen, when the game would have drawn the HUD (not the pause menu's frames,
+    // nor a cutscene's)
+    void Presenting(gpu::Context& ctx, gpu::Target& t) override {
+        uint32_t w = 0, h = 0;
+        ctx.GuestSize(w, h);
+        if (!g_hide_hud || !HudWanted() || ctx.Presents() != frame_ || done_ || scene_ < kSceneDraws) return;
+        if (t.depth || t.gw != w || t.gh != h) return;
+        done_ = true;
+        if (Finish(ctx, t)) ctx.Unbind();
     }
 
 private:
+    // the 3D picture done: the antialiasing, then the sharpening; true when either drew
+    bool Finish(gpu::Context& ctx, gpu::Target& rt) {
+        bool smoothed = smaa_.Run(ctx, rt);
+        float sharpness = g_sharpness.load();
+        if (!g_on || sharpness <= 0.0f) return smoothed;
+        ID3D12Resource* copy = ctx.Feedback(rt);
+        if (!copy) return smoothed;
+        ctx.Transition(rt.res.Get(), rt.state, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        ID3D12Resource* src[3] = {copy, nullptr, nullptr};
+        const DXGI_FORMAT fmt[3] = {rt.fmt, rt.fmt, rt.fmt};
+        // the neighbours a console pixel apart, at least one
+        float step = std::max(1.0f, std::round(float(rt.w) / float(rt.gw)));
+        const float p[8] = {sharpness, 0, 0, 0, step};
+        ctx.Pass(kHlsl, "cas", rt.fmt, ctx.View(rt), rt.w, rt.h, src, fmt, p, -1.0f);
+        LOG_FIRST(1, "sharpening: %ux%u, sharpness %.2f, step %.0f", rt.w, rt.h, sharpness, step);
+        return true;
+    }
+
     uint64_t frame_ = ~0ull;
     uint32_t scene_ = 0;
     bool done_ = false;

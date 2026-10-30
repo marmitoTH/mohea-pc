@@ -26,6 +26,8 @@ extern bool g_unlimited_ammo;
 
 // game/hud.cpp: the HUD not drawn
 extern bool g_hide_hud;
+// the game would draw its HUD now: in play, not in the pause menu or a cutscene (any thread)
+bool HudWanted();
 
 // game/shell_shock.cpp: no shell shock from blasts and scripts
 extern bool g_no_shell_shock;

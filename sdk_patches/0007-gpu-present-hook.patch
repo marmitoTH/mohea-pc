@@ -1,0 +1,29 @@
+A present hook for the renderer extension: Extension::Presenting gets the frame's front buffer, resolved, before
+it is drawn to the swap chain. An effect that runs at a point in the frame (after the 3D scene, before the HUD) can
+run there instead on a frame that never reached that point.
+
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 641dd99..feeecb3 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -3414,6 +3414,7 @@ void D3D12Backend::Present(const Surface& front) {
+     Target* t = EnsureTarget(front, false);
+     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
+     if (t) Resolve(*t);
++    if (t && ext_) ext_->Presenting(*this, *t);
+     if (ramp_dirty_) UploadGammaRamp();
+     Transition(lut_.Get(), lut_state_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+ 
+diff --git a/runtime/gpu/ext.h b/runtime/gpu/ext.h
+index ce6acda..763f7ac 100644
+--- a/runtime/gpu/ext.h
++++ b/runtime/gpu/ext.h
+@@ -87,6 +87,8 @@ public:
+     virtual void Constants(float (*/*vsc*/)[4], float* /*ext*/, const Target* /*rt*/, uint32_t /*src_blend*/) {}
+     // a target with range other than 1 is read, copied or presented
+     virtual void Resolve(Context&, Target&) {}
++    // the frame's front buffer, resolved, about to be presented
++    virtual void Presenting(Context&, Target&) {}
+ };
+ 
+ inline std::unique_ptr<Extension> g_extension;
