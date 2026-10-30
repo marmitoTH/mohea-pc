@@ -3,6 +3,7 @@
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
+#include "common/marker.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
 
@@ -64,6 +65,7 @@ const app::GameInfo app::kGame = {
                 {"player_invincible", &g_player_invincible, nullptr},
                 {"unlimited_ammo", &g_unlimited_ammo, nullptr},
                 {"hide_hud", &g_hide_hud, nullptr},
+                {"hide_squad_marker", &marker::g_hide, nullptr},
                 {"no_shell_shock", &g_no_shell_shock, nullptr},
                 {"smaa", nullptr, &smaa::g_preset},
                 {"sharpening", &sharpen::g_on, nullptr},

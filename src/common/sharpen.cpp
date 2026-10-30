@@ -8,6 +8,7 @@
 
 #include <toml++/toml.hpp>
 
+#include "common/marker.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
 #include "core/log.h"
@@ -70,6 +71,17 @@ bool HudStart(const gpu::State& s) {
 // antialiasing (common/smaa.h) and the sharpening
 class Effects : public gpu::Extension {
 public:
+    // the squad's markers (common/marker.h)
+    const gpu::ShaderHooks* Shaders() const override { return marker::Shaders(); }
+    void Decoded(const gpu::TextureDesc& d, const gpu::FormatInfo& fi, uint32_t face, uint32_t level,
+                 const std::vector<uint8_t>& px, uint32_t pitch, uint8_t& flags) override {
+        marker::Decoded(d, fi, face, level, px, pitch, flags);
+    }
+    void Sampled(const gpu::TextureDesc&, const gpu::Target*, uint8_t flags, gpu::TexInfo& info) override {
+        marker::Sampled(flags, info);
+    }
+    void Constants(float (*)[4], float* ext, const gpu::Target*, uint32_t) override { marker::Constants(ext); }
+
     bool Bound(gpu::Context& ctx, const gpu::State& s, gpu::Target* rt, gpu::Target* ds, bool) override {
         uint64_t frame = ctx.Presents();
         if (frame != frame_) {

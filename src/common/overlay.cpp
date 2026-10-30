@@ -9,6 +9,7 @@
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
+#include "common/marker.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
 #include "core/log.h"
@@ -115,6 +116,8 @@ void Draw() {
         app::Save();
     }
     if (ImGui::Checkbox("Hide HUD", &g_hide_hud)) app::Save();
+    // the star over each squad member, its health too
+    if (ImGui::Checkbox("Hide squad markers", &marker::g_hide)) app::Save();
 
     Heading("Gameplay");
     // what a fallen enemy drops: ammo, medkits, grenades, its weapon
