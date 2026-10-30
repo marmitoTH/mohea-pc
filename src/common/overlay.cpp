@@ -171,7 +171,8 @@ void GraphicsTab() {
     int af = 0;
     for (int i = 0; i < 5; i++)
         if (s.aniso == kAaSamples[i]) af = i;
-    // the same steps as the antialiasing's: off (as the game asks), 2x, 4x, 8x, 16x
+    // off (as the game asks: one level textures sharp, as the console drew them), 2x, 4x, 8x, 16x (with mip chains
+    // made for those, sdk_patches/0008)
     if (ImGui::Combo("Anisotropic filtering", &af, kAa, 5)) {
         s.aniso = kAaSamples[af];
         app::Save();

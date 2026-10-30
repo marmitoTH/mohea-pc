@@ -1,0 +1,33 @@
+Mip chains only with anisotropic filtering on: a one level texture is given a chain (0006) only while
+anisotropic_filtering is on. Off, the chain filtered without it blurred what the console drew sharp; off is now the
+console's look. A texture is made again when the switch changes its chain.
+
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index feeecb3..306ef0e 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -1712,10 +1712,12 @@ ID3D12Resource* D3D12Backend::BindTargetTexture(const State& s, int stage, const
+ 
+ // A 2D texture of one level, 8 bit colour or DXT, gets a whole mip chain, made from its level as it uploads: the
+ // title asks to filter across mip levels on textures that have none, which then shimmered in the distance and kept
+-// anisotropic filtering from doing anything
++// anisotropic filtering from doing anything. Only with anisotropic filtering on: the chain alone, filtered without
++// it, blurs what the console drew sharp, and off is the console's look
+ bool MakesMips(const TextureDesc& d, const FormatInfo& fi) {
+     bool colour = fi.host == Host::BGRA8 || fi.host == Host::BC1 || fi.host == Host::BC2 || fi.host == Host::BC3;
+-    return colour && !fi.depth && d.levels == 1 && !d.cube && d.depth == 1 && std::max(d.width, d.height) >= 4;
++    return app::Get().aniso != 0 && colour && !fi.depth && d.levels == 1 && !d.cube && d.depth == 1 &&
++           std::max(d.width, d.height) >= 4;
+ }
+ 
+ uint32_t MipCount(uint32_t w, uint32_t h) {
+@@ -1959,7 +1961,8 @@ ID3D12Resource* D3D12Backend::BindGuestTexture(const State& s, int stage, const
+     const uint32_t* colours = palette.va ? palette.colours : nullptr;
+     Tex& tx = textures_[key];
+     uint32_t total = TotalSize(d);
+-    bool same = SameTexture(tx, d);
++    // made again when the anisotropic filtering's switch changes its mip chain
++    bool same = SameTexture(tx, d) && tx.mips == MakesMips(d, fi);
+     if (!same && !CreateTexture(tx, d, fi, key)) return nullptr;
+     // cheap change check once per frame: lock epochs plus a sample of the bytes
+     if (tx.frame != presents_ + 1 || !same || tx.palette != palette.hash) {

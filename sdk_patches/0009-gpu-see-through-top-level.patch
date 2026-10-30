@@ -1,0 +1,52 @@
+See-through textures keep their one level: a one level texture given a chain (0006, 0008) that has any alpha below
+solid (foliage, fences, wire) is drawn from its top level alone, as the console drew it. Its averaged levels thinned
+its alpha whatever the game's test or blend, and plants faded away within a few steps; matching the levels' alpha to
+the top's did not hold either. Opaque textures keep their chain.
+
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 306ef0e..d07bbac 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -357,6 +357,7 @@ struct Tex {
+     uint64_t pack_key = 0;      // its pack image is still loading
+     uint32_t pack_gen = 0;      // texturedumper::Generation the key was taken at, 0 after new bytes
+     bool mips = false;          // a one level texture given a mip chain here, BGRA (MakesMips)
++    bool top_only = false;      // that texture see-through: drawn from its one level alone (SeeThrough)
+ };
+ 
+ struct PsoKey {
+@@ -1802,6 +1803,15 @@ std::vector<uint8_t> HalveLevel(const std::vector<uint8_t>& px, uint32_t w, uint
+     return out;
+ }
+ 
++// A texture with see-through parts (foliage, fences, wire) keeps its one level: averaged down, its alpha thinned
++// whatever the game's test or blend made of it, and the plants faded away within a few steps. Drawn from the top
++// level alone, as the console drew it; opaque textures keep their chain
++bool SeeThrough(const std::vector<uint8_t>& px) {
++    for (size_t i = 3; i < px.size(); i += 4)
++        if (px[i] != 255) return true;
++    return false;
++}
++
+ bool SameTexture(const Tex& tx, const TextureDesc& d) {
+     return tx.res && tx.d.format == d.format && tx.d.width == d.width && tx.d.height == d.height &&
+            tx.d.depth == d.depth && tx.d.levels == d.levels && tx.d.cube == d.cube && tx.d.pitch == d.pitch;
+@@ -1894,7 +1904,8 @@ void D3D12Backend::UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo
+         if (ext_) ext_->Decoded(d, fi, 0, 0, px, pitch, tx.flags);
+         uint32_t w = d.width, h = d.height;
+         if (fi.compressed) px = DecodeDxt(fi.host, px, pitch, w, h);
+-        for (uint32_t l = 0; l < tx.levels; l++) {
++        tx.top_only = SeeThrough(px);
++        for (uint32_t l = 0; l < (tx.top_only ? 1 : tx.levels); l++) {
+             if (l) {
+                 px = HalveLevel(px, w, h);
+                 w = std::max(w >> 1, 1u);
+@@ -1925,7 +1936,7 @@ void FillTextureView(const Tex& tx, const TextureDesc& d, D3D12_SHADER_RESOURCE_
+         sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+         sv.Texture3D.MipLevels = tx.levels;
+     } else {
+-        sv.Texture2D.MipLevels = tx.levels;
++        sv.Texture2D.MipLevels = tx.top_only ? 1 : tx.levels;
+     }
+ }
+ 
