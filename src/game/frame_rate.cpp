@@ -4,7 +4,9 @@
 // its movement, turning and the rest by. A level's start (sub_0007FC50) sets that wait to 2 blanks, 30 frames a
 // second; the menus do not wait. With the option the wait is one blank, as the menus run; without it, back to the
 // level's 2 (F9 switches it while playing).
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 #include "common/options.h"
 #include "xdk/hle.h"
@@ -25,6 +27,23 @@ X86_FUNC(sub_000137C0) {
         set = false;
     }
     __imp__sub_000137C0(ctx, base);
+}
+
+// The wait itself (0x137E0) reads the blank count until enough blanks have passed, with nothing between the reads:
+// on the console's one core that cost nothing, on a PC it held the game's thread at a core's full load the whole
+// wait (64% of a core at 60 frames a second, 88% at 30). The blanks come from the runtime's vertical blank thread,
+// every 16.7 ms (xdk/d3d8.cpp). Here the call just before the wait (sub_00013500, the frame's screen fade) is
+// followed by 1 ms sleeps until the wait is due (the runtime keeps the timer at 1 ms), so the game's own loop
+// finds it done at its first read.
+X86_EXTERN_FUNC(__imp__sub_00013500);
+X86_FUNC(sub_00013500) {
+    constexpr uint32_t kFromWait = 0x137D1, kCount = 0x38DC8C, kLast = 0x38DC6C, kFrameBlanks = 0x3727D4;
+    uint32_t from = *reinterpret_cast<uint32_t*>(base + ctx.esp);
+    __imp__sub_00013500(ctx, base);
+    if (from != kFromWait) return;
+    auto read = [&](uint32_t address) { return *reinterpret_cast<volatile uint32_t*>(base + address); };
+    for (int ms = 0; read(kCount) - read(kLast) < read(kFrameBlanks) && ms < 250; ms++)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 // The script timers (sub_0014CD90, cdecl (step), on the list at 0x4F7298; the frame update passes the frame's step in
