@@ -71,8 +71,10 @@ Tools in `src/game/` for following a problem at run time:
 
 ### 2026-10-28: corrupt free list in a game pool (mission 1_8)
 
-**Status:** cause found (a request list's node taken back twice), mitigated by `src/game/requests.cpp`, to be confirmed
-in play. Seen twice; the second time, on 2026-10-29, the pool guard caught it (below).
+**Status:** fixed by `src/game/requests.cpp` (a request list's node taken back twice), confirmed in play: on
+2026-10-30 (log `mohea_145.log`, mission 1_21) it left alone two requests taken out again at 206 s and 274 s, both
+from the completion callback (`0x3C7A9`), with no pool error after and no crash. Seen twice before the fix; the second
+time, on 2026-10-29, the pool guard caught it (below).
 
 - **When:** 744 s into a dev build session (log `mohea_111.log`, dump `MOHEA.2026.10.28_21.04.50.dmp`), playing
   mission 1_8, on guest thread 14 (the game's main thread). The build also had an experimental sprint feature, since
@@ -153,7 +155,6 @@ in play. Seen twice; the second time, on 2026-10-29, the pool guard caught it (b
 - **Next steps:**
   1. Done: `src/game/requests.cpp` hooks `sub_0003CD00` and leaves alone a request no longer in its list, logging
      `requests: request ... taken out of list ... again`. If a new request reused the freed node in the same list, the
-     late callback ends that one early (a sound cut short), but nothing is freed twice. To confirm: play with the pool
-     guard on until that line shows, with no pool error after it.
+     late callback ends that one early (a sound cut short), but nothing is freed twice. Confirmed on 2026-10-30.
   2. Find which events reach a stopped sound, and whether the SDK's DirectSound reports a stopped buffer's end as the
      Xbox did.
