@@ -71,7 +71,8 @@ Tools in `src/game/` for following a problem at run time:
 
 ### 2026-10-28: corrupt free list in a game pool (mission 1_8)
 
-**Status:** open, cause unknown. Seen once.
+**Status:** cause found (a request list's node taken back twice), mitigated by `src/game/requests.cpp`, to be confirmed
+in play. Seen twice; the second time, on 2026-10-29, the pool guard caught it (below).
 
 - **When:** 744 s into a dev build session (log `mohea_111.log`, dump `MOHEA.2026.10.28_21.04.50.dmp`), playing
   mission 1_8, on guest thread 14 (the game's main thread). The build also had an experimental sprint feature, since
@@ -114,19 +115,45 @@ Tools in `src/game/` for following a problem at run time:
   `sub_00186E90` → `sub_00187540` → `sub_0010CCD0` → `sub_0003D0A0` → … → `sub_0003D310` → `sub_0003D8E0` → `sub_001569E0`
 
   The damage was done earlier, by whatever corrupted the list. This call only tripped over it.
-- **Leading theory:** two guest threads use the pool at once. The Xbox ran every thread on one core, where such a
-  race almost never hit; on a PC they run in parallel (CHECKLIST.md §8). Supporting it: with the guard, a dev build
-  run later on 2026-10-28 logged at 48 s, in the menus:
+- **First theory (2026-10-28):** two guest threads use the pool at once. With the guard, a run that day logged in the
+  menus `pool 003A65A8: used by guest thread 14 too, first by 28 (from 0003D80B 0003DB8E 0003D3D4 0003E3B0)`. Thread
+  0x28 starts at `0x1BFE7E`, the start routine several threads share (18, 24, 28, 34, 3C). The second sighting does
+  not need a race: every operation on the block was on thread 14.
+- **Second sighting (2026-10-29), caught by the guard:** mission 1_21 (log `mohea_121.log`, dump
+  `MOHEA.2026.10.29_21.00.44.dmp`), with `unlimited_ammo`, `squad_immortal`, `player_invincible` and `no_shell_shock`
+  on. At 198.5 s:
 
   ```
-  pool 003A65A8: used by guest thread 14 too, first by 28 (from 0003D80B 0003DB8E 0003D3D4 0003E3B0)
+  pool 003A65A8: taken back but not live (twice?): block 83F32390 (blocks 46 of 120 in use, ...)
   ```
 
-  Thread 0x28 starts at `0x1BFE7E` (the start routine several threads share: 18, 24, 28, 34, 3C), so which subsystem it
-  runs is not known yet. The other possibility is a plain double free in the game, which the guard would also catch.
+  The block's history, all on thread 14:
+
+  | Step | Return addresses | Path |
+  |---|---|---|
+  | Out | `0003D80B 0003DB8E 0003D3D4 0003E3B0` | Through `sub_0003D800` |
+  | Back | `… 0003C8D1` | A request that failed to start (`sub_0003C890`) |
+  | Out, then back | `… 0003CD4C 0003C887` | Event 0x08, likely stop (`sub_0003C860`) |
+  | Back again: **the double free** | `… 0003CD4C 0003C7A9` | Event 0x02, done (`sub_0003C6F0`) |
+
+  At 205 s the game made an indirect call through a null pointer, at `0x12F730` with `ecx` = `83F32390`, the reused
+  block. The runtime stopped it (`indirect call to 00000000`, exception `80000003` in `MOHEA.exe`).
+- **Cause:** the pool's 0x28-byte blocks are nodes of a list of pending requests (vtable `0x302800`): +0x14 the
+  count, +0x18 the pool, +0x1C the list head. `sub_0003C890` starts a request with the callback `sub_0003C6F0`. A
+  request leaves its list through `sub_0003CD00` (vtable +4, `sub_001568D0` unlinks and frees the node) from three
+  places:
+  - its start failing (`0x3C8D1`);
+  - event 0x08, likely stop (`sub_0003C860`, `0x3C887`);
+  - its completion callback on event 0x02, done (`sub_0003C6F0`, `0x3C7A9`).
+
+  Nothing checks the node is still listed. A request that is stopped and then completes is taken out twice. The
+  request code is in the sound system's range (`0x1ADxxx`), so these are probably sounds. The game likely never got
+  "done" after "stopped" on the Xbox: the SDK's DirectSound may report a sound's end differently, which would also fit
+  the 2026-10-29 "out of sound buffers" crash.
 - **Next steps:**
-  1. Play the dev build, mission 1_8 if possible, until the guard logs an error for `003A65A8`. The error and the
-     history under it give the thread and the guest callers of the bad operation.
-  2. Find what thread 0x28 is: its start parameter, the `0x3Cxxx` subsystem's other entry points.
-  3. If it is a race, serialise the pool's users. Two ways: a lock around `sub_001569E0` and `sub_00156550` for this
-     pool, or `kernel::ShareOneCore` for the threads involved, as Finest Hour did (CHECKLIST.md §8).
+  1. Done: `src/game/requests.cpp` hooks `sub_0003CD00` and leaves alone a request no longer in its list, logging
+     `requests: request ... taken out of list ... again`. If a new request reused the freed node in the same list, the
+     late callback ends that one early (a sound cut short), but nothing is freed twice. To confirm: play with the pool
+     guard on until that line shows, with no pool error after it.
+  2. Find which events reach a stopped sound, and whether the SDK's DirectSound reports a stopped buffer's end as the
+     Xbox did.
