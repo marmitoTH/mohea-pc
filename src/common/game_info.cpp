@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "common/display.h"
+#include "common/graphics.h"
 #include "common/options.h"
 #include "common/pc_input.h"
 #include "common/sharpen.h"
@@ -27,12 +28,14 @@ void Init() {
 // the settings file's tables and values past the options
 void LoadSettings(const void* table) {
     pc_input::Load(table);
+    graphics::Load(table);
     sharpen::Load(table);
     ssao::Load(table);
 }
 
 void SaveSettings(void* table) {
     pc_input::Save(table);
+    graphics::Save(table);
     sharpen::Save(table);
     ssao::Save(table);
 }

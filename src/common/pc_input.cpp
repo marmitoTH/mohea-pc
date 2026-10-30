@@ -15,6 +15,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <iterator>
 #include <cstdio>
 #include <mutex>
 #include <string>
@@ -375,12 +376,26 @@ void Pad(int port, input::Pad& pad) {
         if (thumbs && !thumbs_held[port].exchange(true)) overlay::Toggle(true);
         if (!thumbs) thumbs_held[port] = false;
     }
+    // once the overlay closes a controller's buttons press nothing until all are let go: B or both sticks closed it
+    static std::array<std::atomic<bool>, 4> after_overlay{};
+    bool ported = port >= 0 && port < int(after_overlay.size());
     if (overlay::g_open.load()) {
         bool connected = port == 0 || pad.connected;
         pad = input::Pad{};
         pad.connected = connected;
         g_a_only = AOnly::Both;
+        if (ported) after_overlay[port] = true;
         return;
+    }
+    if (ported && after_overlay[port].load()) {
+        bool down = pad.buttons != 0;
+        for (uint8_t a : pad.analog) down = down || a > kAnalogHeld;
+        if (down) {
+            pad.buttons = 0;
+            std::fill(std::begin(pad.analog), std::end(pad.analog), uint8_t(0));
+        } else {
+            after_overlay[port] = false;
+        }
     }
     if (port != 0) return;
     pad.connected = true;
