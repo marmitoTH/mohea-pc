@@ -102,10 +102,10 @@ end of this file.
   - `.text 0x8000D..0x80065`: the real `sub_0007FCA0` is decoded whole; pointer seeds made bogus entries `sub_0008000F` / `sub_00080061` / `sub_00080063` / `sub_00080065` mid-instruction
   - `D3D sub_002E77EF`: a float table decoded as code; `DSOUND sub_002F46FF`: `00 00` data decoded as code
   - Not marked as `data_ranges` (exact table extents unknown, nothing gained at run time)
-- [ ] Fix analysis gaps found at run time (they only show when the game reaches them):
-  - [ ] `[functions]` / `[[function]]` for entries reached only indirectly (FH needed 3, including its job thread `sub_00068D90`; expect EAGL render-method callbacks, thread entry points and vtables here)
-  - [ ] `[[switch]]` for wrong jump-table targets
-  - [ ] `[xbe] data_ranges` for data embedded in code sections
+- [x] Fix analysis gaps found at run time (they only show when the game reaches them): none so far (playtests to 2026-10-30). The one `indirect call to unknown code` trap logged was a call through a null pointer after the pool double free (CRASHES.md), not missed code. A gap a level not yet played reaches would trap there with `no recompiled function` and the address to add:
+  - [x] `[functions]` / `[[function]]` for entries reached only indirectly (FH needed 3, including its job thread `sub_00068D90`; expect EAGL render-method callbacks, thread entry points and vtables here): none needed, `[functions]` is empty
+  - [x] `[[switch]]` for wrong jump-table targets: none needed
+  - [x] `[xbe] data_ranges` for data embedded in code sections: none needed
 - [x] `DOLBY` (the DSP effects image) is **not** code: `code_sections = [.text, D3D, DSOUND, XGRPH, XPP]`
 - [x] Linked `out/build/release/MOHEA.exe` (5.2 MB) + `MOHEA.dll` (12.8 MB, the recompiled game)
 - [x] Ghidra PE regenerated with every recompiled function: `out/ghidra/mohea.exe`, 22,759 exports
@@ -143,53 +143,54 @@ end of this file.
 On the Xbox all threads time-sliced **one** core; on a PC they run truly in parallel. FH froze or burned a full core
 until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/FinestHourRemastered/blob/main/src/game/jobs.cpp)).
 
-- [ ] Profile for threads spinning at 100% CPU on a queue/flag (`XBE_PERF=1`, a profiler, or the debugger)
-- [ ] For each spin loop: add a `[[hook]]` at the idle path that sleeps/yields (FH: `cod_job_thread_idle` at the job thread's empty-queue branch)
-- [ ] For each spin-wait on another thread releasing something: yield the turn (FH: `cod_job_thread_wait`)
-- [ ] If threads rely on time-sliced ordering (one finishes before the other looks), port FH's `kernel::ShareOneCore` (ticket lock, in FH's `sdk/runtime/kernel/threads.cpp`) and register the affected thread entry points from `kGame.init`
-- [ ] Watch for **game bugs that only crashed rarely on hardware** (FH: RenderWare worlds freed under live objects, `src/game/worlds.cpp`). Use a poisoned heap (FH `debug_heap.cpp` pattern: fill freed blocks with `0xDD`) to surface use-after-free early.
-  - Crashes seen in play, and how to trace one: `CRASHES.md`. The pools are checked with `pool_guard` on (`src/game/pool_guard.cpp`; on in dev builds, a setting in release); one pool already has two guest threads (the 2026-10-28 crash)
+- [x] Profile for threads spinning at 100% CPU on a queue/flag (`XBE_PERF=1`, a profiler, or the debugger): each thread's CPU time sampled over 10 s in a level (2026-10-30). One spinner, the game's own thread in its frame wait: 64% of a core at 60 fps, 88% at 30 (more waiting, more spinning). The renderer's thread ~20%, every other one under 3%
+- [x] For each spin loop: add a `[[hook]]` at the idle path that sleeps/yields (FH: `cod_job_thread_idle` at the job thread's empty-queue branch): the frame wait (`sub_000137C0`'s loop at `0x137E0`, reading the blank count) sleeps in 1 ms steps until due, after `sub_00013500` (`src/game/frame_rate.cpp`). The game's thread 64% to 24% of a core at 60 fps, the process 93% to 53%; no stutter
+- [x] For each spin-wait on another thread releasing something: yield the turn (FH: `cod_job_thread_wait`): none other found
+- [x] If threads rely on time-sliced ordering (one finishes before the other looks), port FH's `kernel::ShareOneCore` (ticket lock, in FH's `sdk/runtime/kernel/threads.cpp`) and register the affected thread entry points from `kGame.init`: not needed so far. The pool crash a race was suspected of was a double free on one thread (CRASHES.md); reopen if a crash shows two threads at once
+- [x] Watch for **game bugs that only crashed rarely on hardware** (FH: RenderWare worlds freed under live objects, `src/game/worlds.cpp`). Use a poisoned heap (FH `debug_heap.cpp` pattern: fill freed blocks with `0xDD`) to surface use-after-free early.
+  - Ongoing: crashes seen in play, and how to trace one, in `CRASHES.md`. The pools are checked with `pool_guard` on (`src/game/pool_guard.cpp`; on in dev builds, a setting in release); one pool already has two guest threads (the 2026-10-28 crash)
 
 ## 9. Graphics (EAGL on the SDK's D3D8 → D3D12 renderer)
 
 - [x] Milestone **M2**: first frame presented (THX `.vp6` at ~10 s, the front end at ~40 s)
-- [ ] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`)
-- [ ] Pixel shaders (`*__EAGLMicroCodePS`): check the pixel combiner translation covers them (env-maps, gloss, lightmaps, refractive, alpha maps)
+- [x] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`): no translation error logged and the picture right in every level played (playtests to 2026-10-30); a program only a level not yet reached uses would show there first (M9)
+- [x] Pixel shaders (`*__EAGLMicroCodePS`): check the pixel combiner translation covers them (env-maps, gloss, lightmaps, refractive, alpha maps): the same, every surface right in the levels played
 - [x] EAGL writes the **push buffer directly**: yes, through `BeginPush`/`EndPush` (named in §4; the SDK's EndPush runs `BEGIN_END` + `INLINE_ARRAY` draws)
-- [ ] Verify at run time that nothing EAGL pushes is dropped (log lines `d3d: pushed commands ...` / `EndPush primitive ... dropped`)
-- [ ] Textures (`.xsh`): swizzled/compressed Xbox formats decode correctly; palettes (P8) if used
-- [ ] Render targets / back buffer / depth formats, `D3DDevice_Swap`/`Present`, VBlank waits (`BlockUntilVerticalBlank`), gamma ramp
-- [ ] Frame pacing: lock to the game's native rate (verify 30 vs 60 Hz) so game logic tied to VBlank/frame count runs at the right speed
-- [ ] Use `XBE_D3D12_DEBUG=1` and `XBE_CAPTURE_DIR` + F3 for frame captures when something draws wrong
+- [x] Verify at run time that nothing EAGL pushes is dropped (log lines `d3d: pushed commands ...` / `EndPush primitive ... dropped`): none in any dev build log
+- [x] Textures (`.xsh`): swizzled/compressed Xbox formats decode correctly; palettes (P8) if used: all right, P8 among them (the squad marker is one, `common/marker.h`)
+- [x] Render targets / back buffer / depth formats, `D3DDevice_Swap`/`Present`, VBlank waits (`BlockUntilVerticalBlank`), gamma ramp: all right (the glow chain, shadows, the weapon's own field of view, the screen effects)
+- [x] Frame pacing: lock to the game's native rate (verify 30 vs 60 Hz) so game logic tied to VBlank/frame count runs at the right speed: levels pace at 30 (2 blanks a frame), the menus at 60; `sixty_fps` runs levels at 60 with the game's step halved, and the script timers kept at 30's steps (`game/frame_rate.cpp`)
+- When something draws wrong: `XBE_D3D12_DEBUG=1`, and `XBE_CAPTURE_DIR` + F3 for frame captures
 
 ## 10. Movies (VP6)
 
-- [ ] VP6 is decoded by **game code** (EA's player inside the XBE), so it is recompiled like everything else. The SDK's Bink fixes do **not** apply.
+- [x] VP6 is decoded by **game code** (EA's player inside the XBE), so it is recompiled like everything else. The SDK's Bink fixes do **not** apply. Confirmed: the logos and the mission intros (`BoBMIntr`, `RusCIntr`, `RusMIntr`…) play with nothing of the SDK's decoding them
 - [x] `thxlogo.vp6` decodes and displays (first boot)
-- [ ] Verify playback speed/timing (timer-based vs frame-count-based) and A/V sync for `eagmlogo`, `thxlogo` and the mission intros
-- [ ] Subtitles (`STF/US/*.stf`) render
+- [x] Verify playback speed/timing (timer-based vs frame-count-based) and A/V sync for `eagmlogo`, `thxlogo` and the mission intros: normal speed, sound in step, the logos, the mission intros and the in-game cutscenes (playtests to 2026-10-30)
+- [x] Subtitles (`STF/US/*.stf`) render: each intro opens its `movies/stf/us/<name>.stf` with the movie, shown in the playtests (2026-10-29)
 
 ## 11. Audio
 
-- [ ] DirectSound HLE → XAudio2: buffers, mix bins, Xbox ADPCM. **No DSound streams**: `DirectSoundCreateStream` is not linked (§4), so EA's streamed audio goes through buffers
+- [x] DirectSound HLE → XAudio2: buffers, mix bins, Xbox ADPCM. **No DSound streams**: `DirectSoundCreateStream` is not linked (§4), so EA's streamed audio goes through buffers. Music, effects, voices and the movies' sound all play right (playtests to 2026-10-30)
 - [x] `DOLBY` section = DSP effects image: the SDK loads it (`dsound: effects image ...`: reverb, gain, mixers, crosstalk; 5 effects "not reproduced")
-- [ ] EA audio formats (`.abk` banks, `.ast`/`.mus` streams, `.mpf` music controller, `.bus`, `audiofx0.fx`) are parsed by game code; check they reach DSound and play at the right pitch/rate
+- [x] EA audio formats (`.abk` banks, `.ast`/`.mus` streams, `.mpf` music controller, `.bus`, `audiofx0.fx`) are parsed by game code; check they reach DSound and play at the right pitch/rate: every kind loads (the logs) and plays at its pitch and rate. `1_99` (the level before the menus) looks for an `audiofx0.fx` the disc does not have, and goes on without it, as on the console
 - [x] Milestone **M3**: front-end music and menu SFX play; in-game sound correct (playtest 2026-10-27)
 
 ## 12. Input
 
-- [ ] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers); hot plug
+- [x] XPP / `XInputGetState` HLE maps an SDL3 controller to the Xbox gamepad (incl. analog buttons and triggers): sticks, buttons and triggers all right in play (playtests to 2026-10-30). Hot plug: a controller unplugged and plugged back in game is taken again, and keyboard and mouse carry on without it
 - [x] Rumble (`XInputSetState`): high-byte fix in place (§7); idle is silent (confirmed in the playtest)
-- [ ] Memory unit enumeration (`XPP_MemoryUnitType`) reports none/empty without crashing
+- [x] Memory unit enumeration (`XPP_MemoryUnitType`) reports none/empty without crashing: the SDK zeroes the record (`xdk/xapi.cpp`), and the game's save and load screens show and save to the hard disk alone
 - [x] Keyboard and mouse (`src/common/pc_input.*`, a PC addition): keys and mouse buttons as the controller on port 0 (connected without a controller), rebindable in `mohea.toml` `[keys]`; cursor hidden and held at the window's centre while the game has the focus
 - [x] Mouse look (`src/game/controls.cpp`): the mouse's motion each frame is added as an angle to the player's turn (`sub_001149E0` yaw, `sub_00114B60` pitch), past the stick's dead zones, the look handler's clamp, response curve and flick halving. Verified on foot, aiming down sights and on mounted weapons (2026-10-27); the controller keeps its own feel. The input chain is written up at the top of `controls.cpp`; `MOHEA_WATCH=actions` (`src/game/watch.cpp`) is the data-breakpoint tool that found it
 - [x] Milestone **M4**: navigate the main menu with a controller
 
 ## 13. Saves, settings, storage
 
-- [ ] Save games via XAPI (`XCreateSaveGame`/`XFindFirstSaveGame`…) land in `hdd/` and reload across restarts
-- [ ] Profile/options save; `T:\` title data persists
-- [ ] Settings file (`mohea.toml`) is written beside the exe
+- [x] Save games via XAPI (`XCreateSaveGame`/`XFindFirstSaveGame`…) land in `hdd/` and reload across restarts: a save a profile in `hdd/E/UDATA/4541005e/<id>/` (`DATA`, `SaveMeta.xbx` with the profile's name), read back at each start (playtests 2026-10-27 to 10-29)
+  - Deleting and overwriting from the game's menus: a profile deleted and a new one ("Holt2") made in its slot (2026-10-30); saves overwrite each session
+- [x] Profile/options save: the options are in the profile's save, and come back with it. `T:\` title data: not used (no log ever opens `T:`, `TDATA` stays empty)
+- [x] Settings file (`mohea.toml`) is written beside the exe, at each change
 
 ## 14. In-game boot milestones (definition of "bootable")
 
@@ -197,7 +198,7 @@ First playtest (2026-10-27, release build, windowed, controller): 15.5 min, miss
 
 - [x] **M5**: start a campaign: the mission intro movie plays and the first level (`DATA/1/1_1`: `level_a.str`, `asyncstr.rez`, `loading.viv`) streams in
 - [x] **M6**: in control of the player: rendering, audio, input all working in-level
-- [x] **M7**: reach a checkpoint, die and restart (playtest: died and carried on; save/load across a restart still to check)
+- [x] **M7**: reach a checkpoint, die and restart (playtest: died and carried on; save and load across a restart since confirmed, §13)
 - [x] **M8**: finish a mission and transition to the next (level unload/reload: watch for freed-memory crashes like FH's)
 - [ ] **M9**: full campaign playthrough without crashes; play every movie once
 
