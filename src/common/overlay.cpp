@@ -27,14 +27,11 @@ namespace {
 std::atomic<bool> g_focus{false};
 
 constexpr const char* kModes[] = {"Fullscreen", "Borderless", "Windowed"};  // app::DisplayMode's order
-constexpr const char* kAa[] = {"Off", "2x", "4x", "8x", "16x"};
-constexpr uint32_t kAaSamples[] = {0, 2, 4, 8, 16};
+constexpr const char* kAniso[] = {"Off", "2x", "4x", "8x", "16x"};
+constexpr uint32_t kAnisoLevels[] = {0, 2, 4, 8, 16};
 
-// the antialiasing, one of: SMAA's presets (smaa::g_preset), the supersampling's samples (app::Settings's), or both
-constexpr const char* kAntialiasing[] = {"Off",      "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra",
-                                         "SSAA 2x",  "SSAA 4x",  "SSAA 8x",     "SSAA 16x", "SSAA 2x + SMAA High"};
-constexpr int kSmaaFirst = 1, kSsaaFirst = 5, kBoth = 9;
-constexpr uint32_t kBothSamples = 2, kBothPreset = 3;
+// the antialiasing: SMAA's presets, smaa::g_preset's order
+constexpr const char* kAntialiasing[] = {"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};
 
 constexpr const char* kPresets[] = {"Original", "Enhanced", "Custom"};  // graphics::Preset's order
 
@@ -153,28 +150,31 @@ void GraphicsTab() {
     }
 
     Heading("Image");
-    // the supersampling's entry, SMAA's, or the two together (any pair set by hand shows as that)
-    int aa = 0;
-    for (int i = 1; i < 5; i++)
-        if (s.antialiasing == kAaSamples[i]) aa = kSsaaFirst + i - 1;
-    if (smaa::Preset()) aa = aa ? kBoth : kSmaaFirst + int(smaa::Preset()) - 1;
-    if (ImGui::Combo("Antialiasing", &aa, kAntialiasing, IM_ARRAYSIZE(kAntialiasing))) {
-        if (aa == kBoth) {
-            s.antialiasing = kBothSamples;
-            smaa::g_preset = kBothPreset;
-        } else {
-            s.antialiasing = aa >= kSsaaFirst ? kAaSamples[aa - kSsaaFirst + 1] : 0;
-            smaa::g_preset = aa >= kSmaaFirst && aa < kSsaaFirst ? uint32_t(aa - kSmaaFirst + 1) : 0;
+    // the size the 3D picture is drawn at, percent of the output's, by 5: over 100 the present averages it back down
+    // (supersampling), under it is cheaper and softer. Set once let go, each change remaking the render targets
+    static int dragged = -1;  // the scale being dragged, -1 none
+    int scale = dragged >= 0 ? dragged : int(s.render_percent);
+    if (ImGui::SliderInt("Resolution scale", &scale, 50, 200, "%d%%"))
+        dragged = std::clamp((scale + 2) / 5 * 5, 50, 200);
+    if (dragged >= 0 && !ImGui::IsItemActive()) {
+        if (uint32_t(dragged) != s.render_percent) {
+            s.render_percent = uint32_t(dragged);
+            app::Save();
         }
+        dragged = -1;
+    }
+    int aa = int(smaa::Preset());
+    if (ImGui::Combo("Antialiasing", &aa, kAntialiasing, IM_ARRAYSIZE(kAntialiasing))) {
+        smaa::g_preset = uint32_t(aa);
         app::Save();
     }
     int af = 0;
     for (int i = 0; i < 5; i++)
-        if (s.aniso == kAaSamples[i]) af = i;
+        if (s.aniso == kAnisoLevels[i]) af = i;
     // off (as the game asks: one level textures sharp, as the console drew them), 2x, 4x, 8x, 16x (with mip chains
     // made for those, sdk_patches/0008)
-    if (ImGui::Combo("Anisotropic filtering", &af, kAa, 5)) {
-        s.aniso = kAaSamples[af];
+    if (ImGui::Combo("Anisotropic filtering", &af, kAniso, 5)) {
+        s.aniso = kAnisoLevels[af];
         app::Save();
     }
 

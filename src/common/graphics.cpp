@@ -1,6 +1,7 @@
 // See graphics.h.
 #include "common/graphics.h"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -16,10 +17,10 @@ namespace graphics {
 
 namespace {
 
-// the settings a preset sets: the antialiasing (SSAA's samples and SMAA's preset), the anisotropic filtering, the
+// the settings a preset sets: the resolution scale, the antialiasing (SMAA's preset), the anisotropic filtering, the
 // colour, the sharpening, the ambient occlusion and the detail distance
 struct Settings {
-    uint32_t ssaa = 0, smaa = 0, aniso = 0;
+    uint32_t scale = 100, smaa = 0, aniso = 0;
     float gamma = 1, contrast = 1, saturation = 1;
     bool sharpen = false;
     float sharpness = 0;
@@ -30,13 +31,13 @@ struct Settings {
 
 Settings Now() {
     const app::Settings& s = app::Get();
-    return {s.antialiasing, smaa::Preset(),      s.aniso,    s.gamma,          s.contrast, s.saturation,
+    return {s.render_percent, smaa::Preset(),      s.aniso,    s.gamma,          s.contrast, s.saturation,
             sharpen::g_on,  sharpen::Strength(), ssao::g_on, ssao::Strength(), LodDistance()};
 }
 
 void Set(const Settings& g) {
     app::Settings& s = app::Get();
-    s.antialiasing = g.ssaa;
+    s.render_percent = std::clamp(g.scale, 50u, 200u);
     smaa::g_preset = g.smaa;
     s.aniso = g.aniso;
     s.gamma = g.gamma;
@@ -53,7 +54,7 @@ void Set(const Settings& g) {
 // the settings file keeps two decimals; a strength counts only while its effect is on
 bool Near(float a, float b) { return std::fabs(a - b) < 0.006f; }
 bool Same(const Settings& a, const Settings& b) {
-    return a.ssaa == b.ssaa && a.smaa == b.smaa && a.aniso == b.aniso && Near(a.gamma, b.gamma) &&
+    return a.scale == b.scale && a.smaa == b.smaa && a.aniso == b.aniso && Near(a.gamma, b.gamma) &&
            Near(a.contrast, b.contrast) && Near(a.saturation, b.saturation) && a.sharpen == b.sharpen &&
            (!a.sharpen || Near(a.sharpness, b.sharpness)) && a.ssao == b.ssao &&
            (!a.ssao || Near(a.ssao_strength, b.ssao_strength)) && a.lod == b.lod;
@@ -63,11 +64,11 @@ bool Same(const Settings& a, const Settings& b) {
 // keeps their strengths for when an effect is turned on again
 Settings Defaults() {
     const app::Settings s;
-    return {s.antialiasing, smaa::g_preset,      s.aniso,    s.gamma,          s.contrast, s.saturation,
+    return {s.render_percent, smaa::g_preset,      s.aniso,    s.gamma,          s.contrast, s.saturation,
             sharpen::g_on,  sharpen::Strength(), ssao::g_on, ssao::Strength(), g_lod_distance};
 }
 const Settings kEnhanced = Defaults();
-const Settings kOriginal = {0, 0, 0, 1, 1, 1, false, kEnhanced.sharpness, false, kEnhanced.ssao_strength, 100};
+const Settings kOriginal = {100, 0, 0, 1, 1, 1, false, kEnhanced.sharpness, false, kEnhanced.ssao_strength, 100};
 
 std::optional<Settings> g_custom;
 
@@ -105,7 +106,7 @@ void Load(const void* table) {
     if (!c) return;
     Settings g = kEnhanced;
     const toml::table& v = *c;
-    g.ssaa = v["antialiasing"].value_or(g.ssaa);
+    g.scale = std::clamp(v["render_percent"].value_or(g.scale), 50u, 200u);
     g.smaa = v["smaa"].value_or(g.smaa);
     g.aniso = v["anisotropic_filtering"].value_or(g.aniso);
     g.gamma = float(v["gamma"].value_or(double(g.gamma)));
@@ -128,7 +129,7 @@ void Save(void* table) {
     auto round = [](float f) { return std::round(double(f) * 100.0) / 100.0; };
     const Settings& g = *g_custom;
     t.insert_or_assign("graphics_custom",
-                       toml::table{{"antialiasing", int64_t(g.ssaa)},
+                       toml::table{{"render_percent", int64_t(g.scale)},
                                    {"smaa", int64_t(g.smaa)},
                                    {"anisotropic_filtering", int64_t(g.aniso)},
                                    {"gamma", round(g.gamma)},

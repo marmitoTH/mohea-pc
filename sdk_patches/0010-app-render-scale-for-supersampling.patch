@@ -1,0 +1,66 @@
+The render scale in place of the supersampling: render_percent (of the output height, 50 to 200, 100 by default) is
+the one size the game's 3D picture is drawn at, below 100 cheaper and softer, over it sharper and antialiased as the
+present averages it back (Blit's taps, spread over each shown pixel, so 150 averages as well as 200). The
+antialiasing setting (supersampling's samples, which raised the scale by their square root) is gone with it; an old
+settings file's is ignored.
+
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+index ebf4f6d..9a49920 100644
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -20,8 +20,7 @@ struct Settings {
+     DisplayMode display_mode = DisplayMode::Borderless;
+     uint32_t width = 0, height = 0;  // 0 is the desktop mode
+     uint32_t window_width = 1280, window_height = 720;  // the window's client size, windowed and not maximized
+-    uint32_t render_percent = 100;   // of the output height
+-    uint32_t antialiasing = 0;       // supersampling: samples a pixel, 2, 4, 8 or 16; 0 off
++    uint32_t render_percent = 100;   // of the output height, 50 to 200
+     // the shown frame's grade, each 1 as the game draws it
+     float gamma = 1.2f;              // the midtones, 0.5 to 2, black and white staying
+     float contrast = 1.1f;           // an S-curve about mid grey, 0.5 to 2, black and white staying
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+index a7e6e19..cf9b8c1 100644
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -49,9 +49,7 @@ void Load() {
+     s.height = t["height"].value_or(s.height);
+     s.window_width = t["window_width"].value_or(s.window_width);
+     s.window_height = t["window_height"].value_or(s.window_height);
+-    s.render_percent = t["render_percent"].value_or(s.render_percent);
+-    s.antialiasing = t["antialiasing"].value_or(s.antialiasing);
+-    if (s.antialiasing != 2 && s.antialiasing != 4 && s.antialiasing != 8 && s.antialiasing != 16) s.antialiasing = 0;
++    s.render_percent = std::clamp(t["render_percent"].value_or(s.render_percent), 50u, 200u);
+     // gamma was brightness
+     double gamma = t["gamma"].value_or(t["brightness"].value_or(double(s.gamma)));
+     s.gamma = std::clamp(float(gamma), 0.5f, 2.0f);
+@@ -82,7 +80,6 @@ toml::table Table() {
+                   {"window_width", int64_t(s.window_width)},
+                   {"window_height", int64_t(s.window_height)},
+                   {"render_percent", int64_t(s.render_percent)},
+-                  {"antialiasing", int64_t(s.antialiasing)},
+                   {"gamma", std::round(s.gamma * 100.0) / 100.0},
+                   {"contrast", std::round(s.contrast * 100.0) / 100.0},
+                   {"saturation", std::round(s.saturation * 100.0) / 100.0},
+@@ -178,8 +175,6 @@ void SetWindowHeight(uint32_t height) { g_window_height = height; }
+ float RenderScale(uint32_t guest_height) {
+     uint32_t window = Get().display_mode == DisplayMode::Windowed ? g_window_height.load() : 0;
+     float h = (window ? window : CachedOutput().height) * (Get().render_percent / 100.0f);
+-    // supersampling: the samples spread over both axes, the present averages them back (BlitFrame)
+-    if (Get().antialiasing >= 2) h *= std::sqrt(float(Get().antialiasing));
+     return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
+ }
+ 
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index d07bbac..69fc89d 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -3309,7 +3309,8 @@ void D3D12Backend::BlitFrame(Target& t) {
+     cl_->RSSetScissorRects(1, &scissor);
+     binds_ = {};
+     Transition(t.res.Get(), t.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+-    // a frame rendered bigger than shown (supersampling) is averaged over all it covers, not read at one point
++    // a frame rendered bigger than shown (render_percent over 100) is averaged over all it covers, not read at one
++    // point: taps spread evenly over each shown pixel, so an in-between scale is averaged too
+     uint32_t taps = std::clamp(uint32_t(std::ceil(float(t.h) / vh - 0.01f)), 1u, 8u);
+     Blit(t.res.Get(), t.fmt, uv, {.gamma = gamma_, .taps = taps, .grade = true});
+ }

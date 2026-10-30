@@ -2,9 +2,8 @@
 // Morphological antialiasing of the game's 3D picture: SMAA 1x (Jimenez et al., the reference shader in common/smaa,
 // MIT), run once a frame on the back buffer at the render scale, where the sharpening runs (common/sharpen.h) and
 // before it: luma edges, blending weights from the area and search tables, then the neighbours blended into the
-// picture. The cheap alternative to the supersampling (the antialiasing setting), or on top of it: the overlay offers
-// the two as one choice, SMAA's presets, the supersampling's, or 2x with SMAA high. Settings file: smaa, SMAA's preset
-// (0 off; 1 low, 2 medium, 3 high, 4 ultra, the default).
+// picture. The cheap alternative to a resolution scale over 100% (render_percent), or on top of it. Settings file:
+// smaa, SMAA's preset (0 off; 1 low, 2 medium, 3 high, 4 ultra, the default).
 #include <cstdint>
 
 #include "gpu/ext.h"
