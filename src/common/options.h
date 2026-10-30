@@ -10,6 +10,11 @@ extern bool g_sixty_fps;
 extern uint32_t g_fov;
 float RestFov();
 
+// game/lod.cpp: how far characters and objects keep their detail, percent of the game's distances (100 to 400, 400
+// by default)
+extern uint32_t g_lod_distance;
+uint32_t LodDistance();
+
 // game/drops.cpp: how long a fallen enemy's drops stay, seconds (23 to 600, 23 the game's and the default), or for good
 extern uint32_t g_drop_seconds;
 extern bool g_drops_forever;

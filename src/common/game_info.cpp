@@ -62,6 +62,7 @@ const app::GameInfo app::kGame = {
                 {"invert_mouse_y", &pc_input::g_invert_mouse_y, nullptr},       // settings file
                 {"sixty_fps", &g_sixty_fps, nullptr},
                 {"fov", nullptr, &g_fov},
+                {"lod_distance", nullptr, &g_lod_distance},
                 {"drop_seconds", nullptr, &g_drop_seconds},
                 {"drops_forever", &g_drops_forever, nullptr},
                 {"squad_immortal", &g_squad_immortal, nullptr},

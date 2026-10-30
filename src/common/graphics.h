@@ -1,8 +1,8 @@
 #pragma once
 // The graphics presets the overlay offers: Original (the game as the console drew it: no antialiasing, filtering as
-// the game asks, the colour as drawn, no sharpening or ambient occlusion), Enhanced (this port's defaults) and Custom,
-// whatever else the settings are. The last custom settings are kept, in the settings file's [graphics_custom], so
-// choosing Custom after a preset brings them back.
+// the game asks, the colour as drawn, no sharpening or ambient occlusion, the game's detail distances), Enhanced (this
+// port's defaults) and Custom, whatever else the settings are. The last custom settings are kept, in the settings
+// file's [graphics_custom], so choosing Custom after a preset brings them back.
 #include <cstdint>
 
 namespace graphics {

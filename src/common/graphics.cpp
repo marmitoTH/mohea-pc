@@ -7,6 +7,7 @@
 #include <toml++/toml.hpp>
 
 #include "app/app.h"
+#include "common/options.h"
 #include "common/sharpen.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
@@ -16,7 +17,7 @@ namespace graphics {
 namespace {
 
 // the settings a preset sets: the antialiasing (SSAA's samples and SMAA's preset), the anisotropic filtering, the
-// colour, the sharpening and the ambient occlusion
+// colour, the sharpening, the ambient occlusion and the detail distance
 struct Settings {
     uint32_t ssaa = 0, smaa = 0, aniso = 0;
     float gamma = 1, contrast = 1, saturation = 1;
@@ -24,12 +25,13 @@ struct Settings {
     float sharpness = 0;
     bool ssao = false;
     float ssao_strength = 0;
+    uint32_t lod = 100;
 };
 
 Settings Now() {
     const app::Settings& s = app::Get();
-    return {s.antialiasing,  smaa::Preset(),  s.aniso,         s.gamma, s.contrast, s.saturation,
-            sharpen::g_on,   sharpen::Strength(), ssao::g_on, ssao::Strength()};
+    return {s.antialiasing, smaa::Preset(),      s.aniso,    s.gamma,          s.contrast, s.saturation,
+            sharpen::g_on,  sharpen::Strength(), ssao::g_on, ssao::Strength(), LodDistance()};
 }
 
 void Set(const Settings& g) {
@@ -44,6 +46,7 @@ void Set(const Settings& g) {
     sharpen::SetStrength(g.sharpness);
     ssao::g_on = g.ssao;
     ssao::SetStrength(g.ssao_strength);
+    g_lod_distance = g.lod;
     app::Save();
 }
 
@@ -53,18 +56,18 @@ bool Same(const Settings& a, const Settings& b) {
     return a.ssaa == b.ssaa && a.smaa == b.smaa && a.aniso == b.aniso && Near(a.gamma, b.gamma) &&
            Near(a.contrast, b.contrast) && Near(a.saturation, b.saturation) && a.sharpen == b.sharpen &&
            (!a.sharpen || Near(a.sharpness, b.sharpness)) && a.ssao == b.ssao &&
-           (!a.ssao || Near(a.ssao_strength, b.ssao_strength));
+           (!a.ssao || Near(a.ssao_strength, b.ssao_strength)) && a.lod == b.lod;
 }
 
 // Enhanced: the defaults, as they are before the settings file loads (the program's start, before main); Original
 // keeps their strengths for when an effect is turned on again
 Settings Defaults() {
     const app::Settings s;
-    return {s.antialiasing, smaa::g_preset, s.aniso, s.gamma, s.contrast, s.saturation,
-            sharpen::g_on,  sharpen::Strength(), ssao::g_on, ssao::Strength()};
+    return {s.antialiasing, smaa::g_preset,      s.aniso,    s.gamma,          s.contrast, s.saturation,
+            sharpen::g_on,  sharpen::Strength(), ssao::g_on, ssao::Strength(), g_lod_distance};
 }
 const Settings kEnhanced = Defaults();
-const Settings kOriginal = {0, 0, 0, 1, 1, 1, false, kEnhanced.sharpness, false, kEnhanced.ssao_strength};
+const Settings kOriginal = {0, 0, 0, 1, 1, 1, false, kEnhanced.sharpness, false, kEnhanced.ssao_strength, 100};
 
 std::optional<Settings> g_custom;
 
@@ -112,6 +115,7 @@ void Load(const void* table) {
     g.sharpness = float(v["sharpness"].value_or(double(g.sharpness)));
     g.ssao = v["ssao"].value_or(g.ssao);
     g.ssao_strength = float(v["ssao_strength"].value_or(double(g.ssao_strength)));
+    g.lod = v["lod_distance"].value_or(g.lod);
     g_custom = g;
 }
 
@@ -133,7 +137,8 @@ void Save(void* table) {
                                    {"sharpening", g.sharpen},
                                    {"sharpness", round(g.sharpness)},
                                    {"ssao", g.ssao},
-                                   {"ssao_strength", round(g.ssao_strength)}});
+                                   {"ssao_strength", round(g.ssao_strength)},
+                                   {"lod_distance", int64_t(g.lod)}});
 }
 
 }  // namespace graphics

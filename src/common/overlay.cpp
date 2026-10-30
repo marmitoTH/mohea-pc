@@ -177,6 +177,11 @@ void GraphicsTab() {
         app::Save();
     }
 
+    // how far characters and objects keep their detail, and are drawn at all
+    int lod = int(LodDistance());
+    if (ImGui::SliderInt("Detail distance", &lod, 100, 400, "%d%%")) g_lod_distance = uint32_t(lod);
+    SaveAfter();
+
     Heading("Color");
     // the frame as shown, menus and HUD too (the runtime's present)
     if (ImGui::SliderFloat("Gamma", &s.gamma, 0.5f, 2.0f, "%.2f")) s.gamma = std::clamp(s.gamma, 0.5f, 2.0f);
