@@ -45,6 +45,7 @@ struct Defaults {
     uint32_t drop_seconds = g_drop_seconds;
     bool drops_forever = g_drops_forever, squad_immortal = g_squad_immortal;
     bool player_invincible = g_player_invincible, unlimited_ammo = g_unlimited_ammo, no_shell_shock = g_no_shell_shock;
+    bool aim_move = g_aim_move;
     uint32_t mouse_sensitivity = pc_input::g_mouse_sensitivity;
     bool invert_mouse_y = pc_input::g_invert_mouse_y;
 };
@@ -74,6 +75,7 @@ void Reset(int part) {
         g_player_invincible = d.player_invincible;
         g_unlimited_ammo = d.unlimited_ammo;
         g_no_shell_shock = d.no_shell_shock;
+        g_aim_move = d.aim_move;
     }
     if (part & kControls) {
         pc_input::g_mouse_sensitivity = d.mouse_sensitivity;
@@ -229,6 +231,9 @@ void HacksTab() {
     }
     ImGui::EndDisabled();
 
+    Heading("Movement");
+    // the left stick walks while aiming down the sights, at half speed, instead of leaning (game/strafe.cpp)
+    if (ImGui::Checkbox("Move while aiming", &g_aim_move)) app::Save();
     Heading("Cheats");
     if (ImGui::Checkbox("Squad takes no hits", &g_squad_immortal)) app::Save();
     if (ImGui::Checkbox("Player takes no damage", &g_player_invincible)) app::Save();

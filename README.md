@@ -36,6 +36,7 @@ The whole campaign is playable from start to finish, with every movie and cutsce
 ### Gameplay
 All off by default, they leave the original game as it was.
 - **Drops** - Weapons and items dropped by fallen enemies can stay longer, or never disappear.
+- **Move while aiming** - Walk and strafe at half speed while aiming down the sights, instead of leaning in place.
 - **Cheats** - Squad takes no hits, player takes no damage, unlimited ammo, no shell shock.
 
 ### Controls

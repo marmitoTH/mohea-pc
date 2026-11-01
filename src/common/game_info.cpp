@@ -71,6 +71,7 @@ const app::GameInfo app::kGame = {
                 {"hide_hud", &g_hide_hud, nullptr},
                 {"hide_squad_marker", &marker::g_hide, nullptr},
                 {"no_shell_shock", &g_no_shell_shock, nullptr},
+                {"aim_move", &g_aim_move, nullptr},
                 {"smaa", nullptr, &smaa::g_preset},
                 {"sharpening", &sharpen::g_on, nullptr},
                 {"ssao", &ssao::g_on, nullptr},

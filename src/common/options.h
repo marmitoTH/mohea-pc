@@ -37,5 +37,8 @@ bool HudWanted();
 // game/shell_shock.cpp: no shell shock from blasts and scripts
 extern bool g_no_shell_shock;
 
+// game/strafe.cpp: aiming down the sights the left stick walks and strafes (at half speed) instead of leaning
+extern bool g_aim_move;
+
 // game/pool_guard.cpp: the game's pools checked as they are used, for tracing crashes (on in dev and debug builds)
 extern bool g_pool_guard;
