@@ -31,6 +31,7 @@ namespace pc_input {
 
 uint32_t g_mouse_sensitivity = 100;
 bool g_invert_mouse_y = false;
+bool g_swap_sticks = false;
 
 namespace {
 
@@ -50,6 +51,28 @@ constexpr const char* kTargetNames[kTargetCount] = {
     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "left_thumb", "right_thumb",
     "move_forward", "move_back", "move_left", "move_right", "look_up", "look_down", "look_left", "look_right",
     "reload", "use"};
+
+// what each does in game, the default layout's button after it
+constexpr const char* kActionNames[kTargetCount] = {
+    "Use / reload (A)",          "Change weapon (B)",         "Crouch / prone (X)",      "Jump / stand (Y)",
+    "Adrenaline (black)",        "Medkit (white)",            "Aim (left trigger)",      "Fire (right trigger)",
+    "Grenade (d-pad up)",        "Recall squad (d-pad down)", "D-pad left",              "D-pad right",
+    "Pause (start)",             "Mission map (back)",        "Position squad (L3)",     "Melee (R3)",
+    "Move forward",              "Move back",                 "Move left",               "Move right",
+    "Look up",                   "Look down",                 "Look left",               "Look right",
+    "Reload",                    "Use"};
+
+// the overlay's order: moving and looking, the actions, reload and use beside A
+constexpr Target kListed[kTargetCount] = {
+    kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
+    kRightTrigger, kLeftTrigger, kA, kReload, kUse, kB, kX, kY, kRightThumb, kLeftThumb,
+    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kBlack, kWhite, kStart, kBack};
+
+// a controller's buttons, in the targets' order: the analog ones (input::Pad's analog), then the digital ones (its
+// buttons' bits)
+constexpr const char* kPadButtonNames[kPadButtons] = {
+    "A", "B", "X", "Y", "Black", "White", "Left trigger", "Right trigger",
+    "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Start", "Back", "Left stick (L3)", "Right stick (R3)"};
 
 // an analog button the game counts as held (sub_000C4D50: over 0x7F)
 constexpr uint8_t kAnalogHeld = 0x7F;
@@ -90,6 +113,48 @@ std::array<std::vector<int>, kTargetCount> Defaults() {
 
 std::mutex g_lock;  // the bindings and the mouse's motion: the pads are polled from several threads
 std::array<std::vector<int>, kTargetCount> g_keys = Defaults();
+// each action a controller's button can drive (OnPad), the button on it (-1 none): at first its own, none on reload
+// and use (A does both)
+bool PadAction(int action) { return action < kPadButtons || action == kReload || action == kUse; }
+std::array<int, kTargetCount> PadDefaults() {
+    std::array<int, kTargetCount> p;
+    for (int i = 0; i < kTargetCount; i++) p[i] = i < kPadButtons ? i : -1;
+    return p;
+}
+
+// The presets: the game's four layouts as it defines them (game/layout.cpp; Sharp Shooter is the default, the others
+// move a few of its actions) and a modern one, the triggers to aim and fire, A to jump, B to crouch, X to use and
+// reload, Y to change weapon, the bumpers (black and white) the grenade and adrenaline; then the player's own
+constexpr const char* kPresetNames[kPadPresets] = {"Sharp Shooter", "Commander", "Recon", "Reloader", "Modern",
+                                                   "Custom"};
+constexpr const char* kPresetKeys[kPadPresets] = {"sharp_shooter", "commander", "recon", "reloader", "modern",
+                                                  "custom"};
+std::array<int, kTargetCount> PresetMap(int preset) {
+    std::array<int, kTargetCount> p = PadDefaults();
+    switch (preset) {
+        case 1:  // Commander
+            p[kLeftTrigger] = kLeftThumb, p[kLeftThumb] = kLeftTrigger, p[kDpadDown] = kBlack, p[kWhite] = kDpadDown;
+            p[kBlack] = kDpadUp, p[kDpadUp] = kWhite;
+            break;
+        case 2:  // Recon
+            p[kLeftThumb] = kDpadUp, p[kDpadUp] = kLeftThumb;
+            break;
+        case 3:  // Reloader
+            p[kReload] = kWhite, p[kDpadDown] = kBlack, p[kWhite] = kDpadDown, p[kBlack] = kDpadUp;
+            p[kDpadUp] = kDpadLeft;
+            break;
+        case 4:  // Modern
+            p[kA] = kX, p[kY] = kA, p[kX] = kB, p[kB] = kY, p[kDpadUp] = kBlack, p[kBlack] = kWhite;
+            p[kWhite] = kDpadUp;
+            break;
+    }
+    return p;
+}
+
+// the preset chosen, the player's own mapping, and what the controller has now (one or the other)
+int g_preset = 0;
+std::array<int, kTargetCount> g_custom = PadDefaults();
+std::array<int, kTargetCount> g_pad = PadDefaults();
 std::atomic<HWND> g_hwnd{nullptr};
 std::atomic<AOnly> g_a_only{AOnly::Both};
 
@@ -101,6 +166,12 @@ std::atomic<bool> g_scoped{false};
 // the wheel's notches are presses held for a moment, long enough for a poll at the game's frame rate to see them
 constexpr auto kWheelHold = std::chrono::milliseconds(80);
 std::atomic<int64_t> g_wheel_up{0}, g_wheel_down{0};  // clock ticks of the last notch
+
+// the overlay's key capture (driven from the UI thread, the window thread records the wheel for it): waiting for
+// every key to be up, then for one; the wheel's notches as they were when it began waiting
+enum class Capture { Off, Up, Waiting };
+std::atomic<Capture> g_capture{Capture::Off};
+int64_t g_capture_up = 0, g_capture_down = 0;
 
 // the mouse's motion, each raw report with its time: the right stick is its rate over the last moments, so however
 // many threads poll, each sees the same stick and none takes the motion from another
@@ -229,13 +300,94 @@ float Stick(float rate) {
     return std::copysign(std::min(v, 32767.0f), rate);
 }
 
+// a key as the overlay shows it: the settings file's name, its words capitalized, the mouse's buttons spelt out
+std::string ShownName(int key) {
+    switch (key) {
+        case VK_LBUTTON: return "Left mouse";
+        case VK_RBUTTON: return "Right mouse";
+        case VK_MBUTTON: return "Middle mouse";
+        case VK_XBUTTON1: return "Mouse 4";
+        case VK_XBUTTON2: return "Mouse 5";
+    }
+    std::string name = NameOf(key);
+    if (name.size() == 4 && name.compare(0, 2, "vk") == 0) {
+        // no name of ours: Windows' own
+        char text[32];
+        if (UINT scan = MapVirtualKeyA(UINT(key), MAPVK_VK_TO_VSC); scan && GetKeyNameTextA(LONG(scan << 16), text, 32))
+            return text;
+        return name;
+    }
+    bool start = true;
+    for (char& c : name) {
+        if (c == '_') {
+            c = ' ';
+            start = true;
+        } else {
+            if (start) c = char(std::toupper(static_cast<unsigned char>(c)));
+            start = false;
+        }
+    }
+    return name;
+}
+
+// what a controller's buttons held of A's actions: A's own (both), reload's and use's
+struct PadA {
+    bool a = false, reload = false, use = false;
+};
+
+// a controller's buttons put on the actions they are mapped to, and its sticks swapped; reload's and use's press A
+PadA Remap(input::Pad& pad) {
+    std::array<int, kTargetCount> map;
+    bool swap;
+    {
+        std::lock_guard lock(g_lock);
+        map = g_pad;
+        swap = g_swap_sticks;
+    }
+    // each button's value, analog or held (0xFF)
+    std::array<uint8_t, kPadButtons> in{};
+    for (int i = 0; i < 8; i++) in[i] = pad.analog[i];
+    for (int i = 0; i < 8; i++) in[8 + i] = (pad.buttons >> i & 1) ? 0xFF : 0;
+    auto value = [&](int action) { return map[action] >= 0 ? in[map[action]] : uint8_t(0); };
+    uint16_t buttons = pad.buttons & ~uint16_t(0xFF);
+    for (int a = 0; a < kPadButtons; a++) {
+        uint8_t v = value(a);
+        if (a < 8) pad.analog[a] = v;
+        else if (v > kAnalogHeld) buttons |= uint16_t(1u << (a - 8));
+    }
+    pad.buttons = buttons;
+    PadA held{pad.analog[kA] > kAnalogHeld, value(kReload) > kAnalogHeld, value(kUse) > kAnalogHeld};
+    if (held.reload || held.use) pad.analog[kA] = 0xFF;
+    if (swap) {
+        std::swap(pad.lx, pad.rx);
+        std::swap(pad.ly, pad.ry);
+    }
+    return held;
+}
+
 }  // namespace
 
 void Load(const void* table) {
     const toml::table& t = *static_cast<const toml::table*>(table);
+    std::lock_guard lock(g_lock);
+    // [pad]: the preset, and the custom mapping, each action its button's name or none (a file from before the
+    // presets has the mapping alone: custom when it is not the default)
+    if (const toml::table* pad = t["pad"].as_table()) {
+        for (int a = 0; a < kTargetCount; a++)
+            if (auto name = (*pad)[kTargetNames[a]].value<std::string>(); name && PadAction(a)) {
+                g_custom[a] = -1;
+                for (int b = 0; b < kPadButtons; b++)
+                    if (*name == kTargetNames[b]) g_custom[a] = b;
+            }
+        g_preset = g_custom == PadDefaults() ? 0 : kPadPresets - 1;
+        if (auto key = (*pad)["preset"].value<std::string>())
+            for (int p = 0; p < kPadPresets; p++)
+                if (*key == kPresetKeys[p]) g_preset = p;
+        g_swap_sticks = (*pad)["swap_sticks"].value_or(g_swap_sticks);
+    }
+    g_pad = g_preset == kPadPresets - 1 ? g_custom : PresetMap(g_preset);
     const toml::table* keys = t["keys"].as_table();
     if (!keys) return;
-    std::lock_guard lock(g_lock);
     for (int i = 0; i < kTargetCount; i++) {
         const toml::node* n = keys->get(kTargetNames[i]);
         if (!n) continue;
@@ -272,6 +424,114 @@ void Save(void* table) {
         keys.insert(kTargetNames[i], std::move(a));
     }
     t.insert_or_assign("keys", std::move(keys));
+    toml::table pad;
+    pad.insert("preset", kPresetKeys[g_preset]);
+    for (int a = 0; a < kTargetCount; a++)
+        if (PadAction(a)) pad.insert(kTargetNames[a], g_custom[a] >= 0 ? kTargetNames[g_custom[a]] : "none");
+    pad.insert("swap_sticks", g_swap_sticks);
+    t.insert_or_assign("pad", std::move(pad));
+}
+
+int Actions() { return kTargetCount; }
+
+bool OnPad(int action) { return PadAction(action); }
+
+const char* ActionName(int action) { return kActionNames[action]; }
+
+int ListedAction(int i) { return kListed[i]; }
+
+std::string KeysText(int action) {
+    std::lock_guard lock(g_lock);
+    std::string text;
+    for (int k : g_keys[action]) text += (text.empty() ? "" : ", ") + ShownName(k);
+    return text.empty() ? "-" : text;
+}
+
+void SetKeys(int action, int key, bool add) {
+    {
+        std::lock_guard lock(g_lock);
+        std::vector<int>& keys = g_keys[action];
+        if (!add) keys.clear();
+        if (key && std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
+    }
+    app::Save();
+}
+
+const char* PadButtonName(int button) { return button >= 0 ? kPadButtonNames[button] : "None"; }
+
+int PadButton(int action) {
+    std::lock_guard lock(g_lock);
+    return g_pad[action];
+}
+
+void SetPadButton(int action, int button) {
+    {
+        std::lock_guard lock(g_lock);
+        // a preset's mapping changed: the player's own from then on
+        g_custom = g_pad;
+        g_preset = kPadPresets - 1;
+        g_custom[action] = button;
+        g_pad = g_custom;
+    }
+    app::Save();
+}
+
+const char* PadPresetName(int preset) { return kPresetNames[preset]; }
+
+int PadPreset() {
+    std::lock_guard lock(g_lock);
+    return g_preset;
+}
+
+void SetPadPreset(int preset) {
+    {
+        std::lock_guard lock(g_lock);
+        g_preset = preset;
+        g_pad = preset == kPadPresets - 1 ? g_custom : PresetMap(preset);
+    }
+    app::Save();
+}
+
+void ResetBindings() {
+    std::lock_guard lock(g_lock);
+    g_keys = Defaults();
+    g_preset = 0;
+    g_custom = PadDefaults();
+    g_pad = PadDefaults();
+    g_swap_sticks = false;
+}
+
+void StartCapture() { g_capture = Capture::Up; }
+
+bool Capturing() { return g_capture.load() != Capture::Off; }
+
+void CancelCapture() { g_capture = Capture::Off; }
+
+int CapturedKey() {
+    // the generic shift, ctrl and alt are their left and right ones
+    auto down = [](int k) {
+        return k != VK_SHIFT && k != VK_CONTROL && k != VK_MENU && (GetAsyncKeyState(k) & 0x8000);
+    };
+    if (g_capture.load() == Capture::Up) {
+        for (int k = 1; k < 0xFF; k++)
+            if (down(k)) return 0;
+        g_capture_up = g_wheel_up.load();
+        g_capture_down = g_wheel_down.load();
+        g_capture = Capture::Waiting;
+        return 0;
+    }
+    if (g_capture.load() != Capture::Waiting) return -1;
+    int key = 0;
+    if (down(VK_ESCAPE)) {
+        g_capture = Capture::Off;
+        return -1;
+    }
+    for (int k = 1; k < 0xFF && !key; k++)
+        if (down(k)) key = k;
+    if (!key && g_wheel_up.load() != g_capture_up) key = kWheelUp;
+    if (!key && g_wheel_down.load() != g_capture_down) key = kWheelDown;
+    if (key) g_capture = Capture::Off;
+    return key;
 }
 
 void Window(void* hwnd) {
@@ -311,7 +571,8 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
             break;
         }
         case WM_MOUSEWHEEL:
-            if (Captured()) (GET_WHEEL_DELTA_WPARAM(wp) > 0 ? g_wheel_up : g_wheel_down) = Ticks(clock::now());
+            if (Captured() || g_capture.load() == Capture::Waiting)
+                (GET_WHEEL_DELTA_WPARAM(wp) > 0 ? g_wheel_up : g_wheel_down) = Ticks(clock::now());
             break;
         case WM_KEYDOWN:
             if (wp == VK_ESCAPE && Windowed() && !(lp & (1 << 30))) {
@@ -397,15 +658,23 @@ void Pad(int port, input::Pad& pad) {
             after_overlay[port] = false;
         }
     }
+    // in play a controller's buttons on their actions (the keys below are bound to actions already); in the menus, the
+    // pause menu among them, its buttons as they are, the d-pad, A and B working them
+    bool play = Ticks(clock::now()) < g_play_until.load();
+    PadA from_pad{pad.analog[kA] > kAnalogHeld};
+    if (pad.connected && play) from_pad = Remap(pad);
     if (port != 0) return;
     pad.connected = true;
-    bool pad_a = pad.analog[0] > kAnalogHeld;
+    // which of A's actions alone is held: by the controller's reload or use button, or a key's (below)
+    auto a_only = [](bool both, bool reload, bool use) {
+        return both || (reload && use) ? AOnly::Both : reload ? AOnly::Reload : use ? AOnly::Use : AOnly::Both;
+    };
     if (!Active()) {
-        g_a_only = AOnly::Both;
+        g_a_only = a_only(from_pad.a, from_pad.reload, from_pad.use);
         return;
     }
     clock::time_point now = clock::now();
-    bool play = Ticks(now) < g_play_until.load(), scoped = g_scoped.load();
+    bool scoped = g_scoped.load();
     std::array<bool, kTargetCount> held{};
     float rate_x = 0.0f, rate_y = 0.0f;
     {
@@ -418,15 +687,22 @@ void Pad(int port, input::Pad& pad) {
             if (down) mouse = false;
             else g_swallow = false;
         }
-        for (int i = 0; i < kTargetCount; i++)
-            for (int k : g_keys[i]) {
-                // the wheel only in play, and not as bound in a scope (below)
-                if (k == kWheelUp || k == kWheelDown) {
-                    if (play && !scoped) held[i] = held[i] || Held(k, now);
-                    continue;
-                }
-                held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
+        // the keys bound, and in the menus the default ones too, so the arrows, Enter, Esc and Backspace work them
+        // however the keys are bound
+        static const std::array<std::vector<int>, kTargetCount> kDefaults = Defaults();
+        auto press = [&](int i, int k) {
+            // the wheel only in play, and not as bound in a scope (below)
+            if (k == kWheelUp || k == kWheelDown) {
+                if (play && !scoped) held[i] = held[i] || Held(k, now);
+                return;
             }
+            held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
+        };
+        for (int i = 0; i < kTargetCount; i++) {
+            for (int k : g_keys[i]) press(i, k);
+            if (!play)
+                for (int k : kDefaults[i]) press(i, k);
+        }
         // in a scope the wheel zooms: the d-pad's up narrows the field of view (in), its down widens it (out)
         if (play && scoped) {
             held[kDpadUp] = held[kDpadUp] || Held(kWheelUp, now);
@@ -450,10 +726,10 @@ void Pad(int port, input::Pad& pad) {
     // analog buttons: A B X Y black white, left and right trigger
     for (int i = 0; i < 8; i++)
         if (held[kA + i]) pad.analog[i] = 0xFF;
-    // reload and use press A, and say which of its actions it is for when nothing else holds it
+    // reload and use, the keys' or the controller's, press A, and say which of its actions it is for when nothing else
+    // holds it
     if (held[kReload] || held[kUse]) pad.analog[0] = 0xFF;
-    bool other = pad_a || held[kA] || (held[kReload] && held[kUse]);
-    g_a_only = other ? AOnly::Both : held[kReload] ? AOnly::Reload : held[kUse] ? AOnly::Use : AOnly::Both;
+    g_a_only = a_only(from_pad.a || held[kA], held[kReload] || from_pad.reload, held[kUse] || from_pad.use);
 
     // keys push a stick fully over what the controller has, a diagonal as far as a controller's stick goes there: an
     // Xbox 360 pad's left stick pushed into a diagonal reads about 25900 an axis, 1.10 to 1.14 times a straight push

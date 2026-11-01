@@ -78,6 +78,7 @@ void Reset(int part) {
     if (part & kControls) {
         pc_input::g_mouse_sensitivity = d.mouse_sensitivity;
         pc_input::g_invert_mouse_y = d.invert_mouse_y;
+        pc_input::ResetBindings();
     }
     app::Save();
     LOGR("overlay: reset %s", part == kAll ? "everything" : "a tab");
@@ -236,6 +237,36 @@ void HacksTab() {
     ResetButton(kHacks, "the hacks");
 }
 
+// the action whose key is being bound (-1 none), the key added to its keys or alone
+int g_binding = -1;
+bool g_binding_add = false;
+
+// a key for g_binding, in a popup until it comes (common/pc_input.h's capture)
+void BindKey() {
+    constexpr const char* kTitle = "Bind a key";
+    if (g_binding >= 0 && !ImGui::IsPopupOpen(kTitle)) {
+        pc_input::StartCapture();
+        ImGui::OpenPopup(kTitle);
+    }
+    ImVec2 centre = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::SetWindowFontScale(1.4f);
+    if (g_binding >= 0) {
+        ImGui::Text("Press a key or mouse button for %s", pc_input::ActionName(g_binding));
+        ImGui::TextDisabled("Esc or B to cancel");
+        int key = pc_input::CapturedKey();
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+            pc_input::CancelCapture();
+            key = -1;
+        }
+        if (key > 0) pc_input::SetKeys(g_binding, key, g_binding_add);
+        if (key != 0) g_binding = -1;
+    }
+    if (g_binding < 0) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
 void ControlsTab() {
     Heading("Mouse");
     int sensitivity = int(pc_input::g_mouse_sensitivity);
@@ -243,8 +274,61 @@ void ControlsTab() {
         pc_input::g_mouse_sensitivity = uint32_t(sensitivity);
     SaveAfter();
     if (ImGui::Checkbox("Invert Y", &pc_input::g_invert_mouse_y)) app::Save();
-    ImGui::TextDisabled("Keys are bound in the settings file's [keys]");
-    ResetButton(kControls, "the mouse settings");
+
+    // the bindings in a list of their own that scrolls, so the tab keeps the others' size
+    float rows = ImGui::GetFrameHeightWithSpacing() * 11.0f;
+    ImGui::BeginChild("bindings", ImVec2(0.0f, rows), ImGuiChildFlags_NavFlattened);
+    Heading("Controller");
+    // the game's layouts, Modern, or the player's own; changing a button below makes it the player's own
+    int preset = pc_input::PadPreset();
+    if (ImGui::BeginCombo("Layout", pc_input::PadPresetName(preset))) {
+        for (int p = 0; p < pc_input::kPadPresets; p++) {
+            if (ImGui::Selectable(pc_input::PadPresetName(p), p == preset) && p != preset) pc_input::SetPadPreset(p);
+            if (p == preset) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::Checkbox("Swap sticks (left looks, right moves)", &pc_input::g_swap_sticks)) app::Save();
+    for (int i = 0; i < pc_input::Actions(); i++) {
+        int action = pc_input::ListedAction(i);
+        if (!pc_input::OnPad(action)) continue;
+        int button = pc_input::PadButton(action);
+        ImGui::PushID(action);
+        if (ImGui::BeginCombo(pc_input::ActionName(action), pc_input::PadButtonName(button))) {
+            for (int b = -1; b < pc_input::kPadButtons; b++) {
+                if (ImGui::Selectable(pc_input::PadButtonName(b), b == button)) pc_input::SetPadButton(action, b);
+                if (b == button) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+    }
+
+    Heading("Keyboard and mouse");
+    if (ImGui::BeginTable("keys", 3, ImGuiTableFlags_SizingFixedFit)) {
+        for (int i = 0; i < pc_input::Actions(); i++) {
+            int action = pc_input::ListedAction(i);
+            ImGui::PushID(1000 + action);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(pc_input::ActionName(action));
+            ImGui::TableNextColumn();
+            if (ImGui::Button("Set")) g_binding = action, g_binding_add = false;
+            ImGui::SameLine();
+            if (ImGui::Button("Add")) g_binding = action, g_binding_add = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Clear")) pc_input::SetKeys(action, 0, false);
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(pc_input::KeysText(action).c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+    BindKey();
+    ResetButton(kControls, "the controls");
 }
 
 // the reset asked for, once confirmed
@@ -336,6 +420,9 @@ void Toggle(bool by_pad) {
     g_open = open;
     if (open) g_focus = true;
     else g_reset = 0;  // closed (Esc) with a reset unconfirmed: none
+    // closed while a key was being bound: none
+    g_binding = -1;
+    pc_input::CancelCapture();
     g_popup = false;
     pc_input::Refresh();
     LOGR("overlay: %s", open ? "open" : "closed");
@@ -346,6 +433,13 @@ void Draw() {
     // a controller alone: the mouse, held at the window's centre, would hover there and fight the d-pad
     if (g_open.load() && g_by_pad.load()) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
     else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+    // a key being bound: the keys and the mouse are the binding's, not the overlay's (Space would press a button)
+    if (pc_input::Capturing()) {
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+    } else {
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    }
     if (!g_open.load()) return;
     // a controller's B closes it and LB and RB step through the tabs, unless a dropdown or the confirmation was open
     // (B closes that, ImGui's own; a frame late, as ImGui has acted on B before this)

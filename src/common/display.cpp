@@ -16,6 +16,7 @@
 #include "app/app.h"
 #include "common/options.h"
 #include "common/overlay.h"
+#include "common/pc_input.h"
 #include "common/sharpen.h"
 #include "common/ssao.h"
 #include "core/log.h"
@@ -84,6 +85,8 @@ void ToggleSsao() {
 
 bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
     bool first = !(lp & (1 << 30));  // not a key held down repeating
+    // a key being bound in the overlay: the key is the binding's, Esc cancels it (common/pc_input.h)
+    if (pc_input::Capturing()) return false;
     switch (msg) {
         case WM_KEYDOWN:
             // F1 opens and closes the overlay, Esc closes it
