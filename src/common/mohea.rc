@@ -1,0 +1,3 @@
+// The executable's icon (the Allied star, 16 to 256 px), resource 1: Explorer shows it, and the runtime loads it for
+// its windows (the game's, the first start's progress and the splash).
+1 ICON "mohea.ico"

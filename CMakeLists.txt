@@ -1,7 +1,7 @@
 # Medal of Honor: European Assault (original Xbox), statically recompiled
 
 cmake_minimum_required(VERSION 3.25)
-project(mohea LANGUAGES C CXX)
+project(mohea LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -78,6 +78,8 @@ endif()
 
 # target name = GAME_EXE in build.bat, xbe = GAME_XBE
 add_xbe_image(MOHEA default.xbe game.toml ${GAME_PARTITIONS} game)
+# the exe's icon
+target_sources(MOHEA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/common/mohea.rc)
 
 # dev builds: the game code DLL gets a PDB too, so a host address in it resolves to its generated line, which names
 # the guest instruction (llvm-symbolizer --obj=MOHEA.dll --relative-address <rva>). Both binaries are named MOHEA and
