@@ -9,24 +9,46 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 
 ## Installation
 
-- Put your game files in the `assets` folder. This can be an ISO, or the extracted data files.
-- Run `MOHEA.exe`. The first start compiles the game's code for your PC, this only happens once.
-- Recomp settings can be adjusted in `mohea.toml` beside the exe.
+- Unzip the release anywhere you can write to.
+- Put your game in the `assets` folder: the disc image (`.iso`), or the whole extracted disc (`default.xbe` with `DATA` and `EAGLRM.O` beside it). Only the USA release is supported; another release is offered to start anyway, but will most likely crash.
+- Run `MOHEA.exe`. The first start compiles the game's code for your PC behind a progress window. This happens only once and can take a while; if you close it, the next start carries on where it left off.
+- Press **F1** (or both sticks, **L3 + R3**, on a controller) for the settings overlay. Every setting is also kept in `mohea.toml` beside the exe.
 
 ## Features
 
-### Display
+The whole campaign is playable from start to finish, with every movie and cutscene.
 
+### Display
+- **Fullscreen, borderless or windowed** - **F11** or **Alt+Enter** switches between a window and the full screen. The window can be resized freely.
+- **60 FPS** - In game at 60 frames a second instead of the original 30 (on by default, **F9** toggles it). Weapons, timers and scripted events keep their original pace.
+- **Field of view** - From 60 to 110 degrees (70 is the original).
+- **Hide HUD** and **hide squad markers** - For screenshots or a cleaner screen.
 
 ### Graphics
+- **Presets** - *Original* looks as the Xbox drew it; *Enhanced* (the default) turns the improvements below on; anything else is *Custom*, and is remembered.
+- **Resolution scale** - From 50% to 200% of the window's resolution. Above 100% it supersamples for a sharper, smoother picture.
+- **SMAA antialiasing** - Low to Ultra (Ultra by default).
+- **Anisotropic filtering** - Up to 16x, for sharp textures at an angle.
+- **Detail distance** - Characters and objects keep their full detail up to four times farther away.
+- **Color** - Gamma, contrast and saturation.
+- **Sharpening** and **ambient occlusion (SSAO)** - With adjustable strength (**F8** and **F7** toggle them).
 
-### Controller
-Supports Xbox, PlayStation and Switch controllers, with hot plugging and rumble.
+### Gameplay
+All off by default, they leave the original game as it was.
+- **Drops** - Weapons and items dropped by fallen enemies can stay longer, or never disappear.
+- **Cheats** - Squad takes no hits, player takes no damage, unlimited ammo, no shell shock.
 
-### General
+### Controls
+- **Controllers** - Xbox, PlayStation and Switch controllers, with hot plugging and rumble.
+- **Keyboard and mouse** - Play with WASD and the mouse, with adjustable sensitivity and inverted Y. The bindings can be changed in `mohea.toml`. Switching between controller and keyboard is seamless.
 
 ### Miscellaneous
+- **Saves** - Profiles and saved games are kept beside the exe, as on the console's hard drive.
 - **Boot Splash** - Place a `splash.png` (or `.bmp`) beside the exe to display a splash screen at launch.
+
+## Known Issues
+
+- A rare crash has been seen with many soldiers about at once (the game runs out of sound buffers). See [CRASHES.md](CRASHES.md).
 
 ## System Requirements
 
@@ -51,8 +73,13 @@ Install Visual Studio 2022 with **Desktop development with C++**, **C++ Clang to
 ### 4. Build the Project
 Run `build.bat`. The first build recompiles the game and takes a while. The exe is written to `out\build\release`.
 
+### 5. Package a Release
+Run `release.bat` (needs [7-Zip](https://www.7-zip.org)). It writes `MOHEA.zip` with the executable, the compiler and the licenses, and no game code: each player's first start compiles it from their own copy.
+
 ## Credits
 
 - [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp), the recompiler and runtime this is built on.
+- [Finest Hour Remastered](https://github.com/crazyriddler/FinestHourRemastered), the Call of Duty: Finest Hour recomp this port was modelled on, for its project layout, build and release scripts, and the lessons on running a single-core Xbox game on a PC.
 - [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) for the overridable function layout and instruction hooks.
 - [Zydis](https://github.com/zyantific/zydis) for decoding x86 instructions, [toml++](https://github.com/marzer/tomlplusplus) for the configs, [Dear ImGui](https://github.com/ocornut/imgui) for the settings overlay and [SDL](https://github.com/libsdl-org/SDL) for the window, input and controllers.
+- [SMAA](https://www.iryoku.com/smaa/) by Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro and Diego Gutierrez, for the antialiasing (MIT, see `SMAA-LICENSE.txt`).

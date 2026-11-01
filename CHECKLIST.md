@@ -64,6 +64,7 @@ end of this file.
   - `0008-gpu-mips-with-anisotropic.patch`: 0006's mip chains only with anisotropic filtering on (off is the console's sharp look)
   - `0009-gpu-see-through-top-level.patch`: see-through textures (foliage, fences) keep their one level, as the console drew them: made mips thinned them out
   - `0010-app-render-scale-for-supersampling.patch`: `render_percent` (50 to 200, the overlay's resolution scale) in place of the supersampling's samples
+  - `0011-app-delete-compiler-by-default.patch`: the first start's "Delete the compiler files" box ticked at first
 - [ ] Later: FH's CMake extras (`-fno-rtti`, `/Brepro`). `XBE_SYMBOLS` (PDB in dev builds) exists only in FH's SDK fork; use the `relwithdebinfo` preset until then
 
 ## 3. Game files in `assets/`
@@ -156,7 +157,7 @@ until it fixed this ([`src/game/jobs.cpp`](https://github.com/crazyriddler/Fines
 ## 9. Graphics (EAGL on the SDK's D3D8 → D3D12 renderer)
 
 - [x] Milestone **M2**: first frame presented (THX `.vp6` at ~10 s, the front end at ~40 s)
-- [x] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`): no translation error logged and the picture right in every level played (playtests to 2026-10-30); a program only a level not yet reached uses would show there first (M9)
+- [x] `EAGLRM.O` render methods: confirm every vertex program (`*__EAGLMicroCodeVS`) passes through `D3DDevice_CreateVertexShader`/`LoadVertexShaderProgram` and the SDK's NV2A VS → HLSL translator handles all of them (560 symbols, families: `Moh3_Cpt_*`, `Moh3_Msh_*`, `Moh4_*`, `Particle`, `SingleDraw*`): no translation error logged and the picture right in every level (the whole campaign played, 2026-10-31)
 - [x] Pixel shaders (`*__EAGLMicroCodePS`): check the pixel combiner translation covers them (env-maps, gloss, lightmaps, refractive, alpha maps): the same, every surface right in the levels played
 - [x] EAGL writes the **push buffer directly**: yes, through `BeginPush`/`EndPush` (named in §4; the SDK's EndPush runs `BEGIN_END` + `INLINE_ARRAY` draws)
 - [x] Verify at run time that nothing EAGL pushes is dropped (log lines `d3d: pushed commands ...` / `EndPush primitive ... dropped`): none in any dev build log
@@ -203,13 +204,13 @@ First playtest (2026-10-27, release build, windowed, controller): 15.5 min, miss
 - [x] **M6**: in control of the player: rendering, audio, input all working in-level
 - [x] **M7**: reach a checkpoint, die and restart (playtest: died and carried on; save and load across a restart since confirmed, §13)
 - [x] **M8**: finish a mission and transition to the next (level unload/reload: watch for freed-memory crashes like FH's)
-- [ ] **M9**: full campaign playthrough without crashes; play every movie once
+- [x] **M9**: full campaign playthrough without crashes; play every movie once (campaign beaten 2026-10-31, dev build: start to finish playable, every movie and cutscene as normal)
 
 ## 15. Packaging (after it boots)
 
-- [ ] `release.bat`: release builds recompile `<exe>.dll` on the **player's PC** from their own XBE (ships no game code)
-- [ ] XBE hash/title-ID check at startup, with a clear message for unsupported releases (PAL/other dumps)
-- [ ] README with build steps and the "provide your own legally acquired copy" notice
+- [x] `release.bat`: release builds recompile `<exe>.dll` on the **player's PC** from their own XBE (ships no game code). `MOHEA.zip` (64 MB): the exe, the compiler folder without its work folder, the VC runtime, README, the SDK's THIRD_PARTY.txt and SMAA-LICENSE.txt; 7-Zip from the PATH or its install folder. Tested 2026-10-31: unzipped into a fresh folder with the game in `assets`, the first start compiled `MOHEA.dll` (about a minute here), removed the compiler folder and booted to the main menu
+- [x] XBE hash/title-ID check at startup, with a clear message for unsupported releases (PAL/other dumps): the SDK checks the xbe (extracted or in an .iso) against the SHA-1 the exe was built from; none found shows `kGame.missing` (USA release, `.iso` or `default.xbe`), another release asks before starting ("most likely crash"). `build.bat` checks the SHA-1 before building
+- [x] README with build steps and the "provide your own legally acquired copy" notice: also installation, features (every overlay option, hotkeys), known issues and credits (SMAA)
 
 ---
 

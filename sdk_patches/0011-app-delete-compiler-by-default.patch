@@ -1,0 +1,16 @@
+The first start's "Delete the compiler files" box ticked at first: once the game's code is built the compiler folder
+(about 170 MB) is not needed again, a new release brings its own. The player can still untick it (click, Space, X).
+
+diff --git a/runtime/app/game_code.cpp b/runtime/app/game_code.cpp
+index 0582ed9..ae2b0d3 100644
+--- a/runtime/app/game_code.cpp
++++ b/runtime/app/game_code.cpp
+@@ -77,7 +77,7 @@ Progress g_progress;
+ std::wstring g_failure;  // the step that failed, written by the build thread before it ends
+ HWND g_window = nullptr;
+ bool g_start = false;  // the player picked Start once the game was ready
+-bool g_delete_compiler = false;  // ticked on the ready page
++bool g_delete_compiler = true;  // ticked on the ready page; at first, as the built game no longer needs it
+ uint64_t g_compiler_bytes = 0;
+ constexpr UINT kBuildDone = WM_APP + 1;
+ 
