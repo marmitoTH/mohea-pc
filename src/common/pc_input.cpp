@@ -42,7 +42,7 @@ enum Target : int {
     kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger,
     kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb,
     kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
-    kReload, kUse,
+    kReload, kUse, kZoomIn, kZoomOut,
     kTargetCount
 };
 
@@ -50,7 +50,7 @@ constexpr const char* kTargetNames[kTargetCount] = {
     "a", "b", "x", "y", "black", "white", "left_trigger", "right_trigger",
     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "left_thumb", "right_thumb",
     "move_forward", "move_back", "move_left", "move_right", "look_up", "look_down", "look_left", "look_right",
-    "reload", "use"};
+    "reload", "use", "zoom_in", "zoom_out"};
 
 // what each does in game, the default layout's button after it
 constexpr const char* kActionNames[kTargetCount] = {
@@ -60,13 +60,13 @@ constexpr const char* kActionNames[kTargetCount] = {
     "Pause (start)",             "Mission map (back)",        "Position squad (L3)",     "Melee (R3)",
     "Move forward",              "Move back",                 "Move left",               "Move right",
     "Look up",                   "Look down",                 "Look left",               "Look right",
-    "Reload",                    "Use"};
+    "Reload",                    "Use",                       "Scope zoom in",           "Scope zoom out"};
 
 // the overlay's order: moving and looking, the actions, reload and use beside A
 constexpr Target kListed[kTargetCount] = {
     kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
     kRightTrigger, kLeftTrigger, kA, kReload, kUse, kB, kX, kY, kRightThumb, kLeftThumb,
-    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kBlack, kWhite, kStart, kBack};
+    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kZoomIn, kZoomOut, kBlack, kWhite, kStart, kBack};
 
 // a controller's buttons, in the targets' order: the analog ones (input::Pad's analog), then the digital ones (its
 // buttons' bits)
@@ -89,6 +89,8 @@ std::array<std::vector<int>, kTargetCount> Defaults() {
     std::array<std::vector<int>, kTargetCount> k;
     k[kReload] = {'R'};
     k[kUse] = {'E'};
+    k[kZoomIn] = {kWheelUp};
+    k[kZoomOut] = {kWheelDown};
     k[kB] = {'Q', kWheelUp, kWheelDown, VK_BACK};
     k[kX] = {'C', VK_LCONTROL};
     k[kY] = {VK_SPACE};
@@ -115,10 +117,15 @@ std::mutex g_lock;  // the bindings and the mouse's motion: the pads are polled 
 std::array<std::vector<int>, kTargetCount> g_keys = Defaults();
 // each action a controller's button can drive (OnPad), the button on it (-1 none): at first its own, none on reload
 // and use (A does both)
-bool PadAction(int action) { return action < kPadButtons || action == kReload || action == kUse; }
+bool PadAction(int action) {
+    return action < kPadButtons || action == kReload || action == kUse || action == kZoomIn || action == kZoomOut;
+}
 std::array<int, kTargetCount> PadDefaults() {
     std::array<int, kTargetCount> p;
     for (int i = 0; i < kTargetCount; i++) p[i] = i < kPadButtons ? i : -1;
+    // the scope's zoom on the d-pad's up and down in every layout, as the game has it
+    p[kZoomIn] = kDpadUp;
+    p[kZoomOut] = kDpadDown;
     return p;
 }
 
@@ -348,10 +355,17 @@ PadA Remap(input::Pad& pad) {
     std::array<uint8_t, kPadButtons> in{};
     for (int i = 0; i < 8; i++) in[i] = pad.analog[i];
     for (int i = 0; i < 8; i++) in[8 + i] = (pad.buttons >> i & 1) ? 0xFF : 0;
-    auto value = [&](int action) { return map[action] >= 0 ? in[map[action]] : uint8_t(0); };
+    // in a scope the zoom's buttons zoom alone (the game's d-pad up and down), and nothing else does
+    bool scoped = g_scoped.load();
+    std::array<bool, kPadButtons> zooms{};
+    for (int z : {map[kZoomIn], map[kZoomOut]})
+        if (scoped && z >= 0) zooms[z] = true;
+    auto pressed = [&](int button) { return button >= 0 ? in[button] : uint8_t(0); };
+    auto value = [&](int action) { return map[action] >= 0 && !zooms[map[action]] ? in[map[action]] : uint8_t(0); };
     uint16_t buttons = pad.buttons & ~uint16_t(0xFF);
     for (int a = 0; a < kPadButtons; a++) {
         uint8_t v = value(a);
+        if (scoped && (a == kDpadUp || a == kDpadDown)) v = pressed(map[a == kDpadUp ? kZoomIn : kZoomOut]);
         if (a < 8) pad.analog[a] = v;
         else if (v > kAnalogHeld) buttons |= uint16_t(1u << (a - 8));
     }
@@ -690,12 +704,19 @@ void Pad(int port, input::Pad& pad) {
         // the keys bound, and in the menus the default ones too, so the arrows, Enter, Esc and Backspace work them
         // however the keys are bound
         static const std::array<std::vector<int>, kTargetCount> kDefaults = Defaults();
+        // in a scope the zoom's keys zoom alone (the wheel by default), outside one the zoom is nothing
+        bool in_scope = play && scoped;
+        auto zooms = [&](int k) {
+            for (Target z : {kZoomIn, kZoomOut})
+                if (std::find(g_keys[z].begin(), g_keys[z].end(), k) != g_keys[z].end()) return true;
+            return false;
+        };
         auto press = [&](int i, int k) {
-            // the wheel only in play, and not as bound in a scope (below)
-            if (k == kWheelUp || k == kWheelDown) {
-                if (play && !scoped) held[i] = held[i] || Held(k, now);
-                return;
-            }
+            bool zoom = i == kZoomIn || i == kZoomOut;
+            if (zoom && !in_scope) return;
+            if (!zoom && in_scope && zooms(k)) return;
+            // the wheel only in play
+            if ((k == kWheelUp || k == kWheelDown) && !play) return;
             held[i] = held[i] || ((mouse || !MouseButton(k)) && Held(k, now));
         };
         for (int i = 0; i < kTargetCount; i++) {
@@ -703,10 +724,10 @@ void Pad(int port, input::Pad& pad) {
             if (!play)
                 for (int k : kDefaults[i]) press(i, k);
         }
-        // in a scope the wheel zooms: the d-pad's up narrows the field of view (in), its down widens it (out)
-        if (play && scoped) {
-            held[kDpadUp] = held[kDpadUp] || Held(kWheelUp, now);
-            held[kDpadDown] = held[kDpadDown] || Held(kWheelDown, now);
+        // the zoom is the d-pad's up (in, narrowing the field of view) and down (out)
+        if (in_scope) {
+            held[kDpadUp] = held[kZoomIn];
+            held[kDpadDown] = held[kZoomOut];
         }
         int sum_x = 0, sum_y = 0;
         for (const Motion& m : g_motion)

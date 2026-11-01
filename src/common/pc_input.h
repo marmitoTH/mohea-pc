@@ -17,8 +17,9 @@ void Load(const void* table);
 void Save(void* table);
 
 // The bindings, remapped from the overlay. The actions are the controller's buttons as the game's default layout has
-// them (the profile's own layout is left out, game/layout.cpp), then each stick direction, and reload and use on their
-// own (each presses A for that action alone). In play a controller's buttons are put on the actions they are mapped
+// them (the profile's own layout is left out, game/layout.cpp), then each stick direction, reload and use on their own
+// (each presses A for that action alone), and the scope's zoom in and out (the d-pad's up and down in a scope, which
+// its buttons and keys then drive alone; the d-pad and the wheel by default). In play a controller's buttons are put on the actions they are mapped
 // to (several may share one) and keys press the actions they are bound to; in the menus, the pause menu among them, a
 // controller is as it is and the default keys work too, so the d-pad, A, B, the arrows and Enter always work them.
 constexpr int kPadButtons = 16;  // a controller's buttons, the first actions
