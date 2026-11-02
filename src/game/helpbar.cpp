@@ -402,7 +402,8 @@ void Patch(uint8_t* base, uint32_t code, uint32_t apt, uint32_t consts_file) {
     }
 }
 
-// the key an icon's button is pressed with in the menus: A's is use's or reload's when it has none of its own
+// the key an icon's button is pressed with in the menus: A's is use's or reload's when it has none of its own, X's
+// crouch's (common/pc_input.cpp)
 std::string MenuKey(int type) {
     constexpr int kTypes[] = {kA, kB, kX, kY};
     if (type < 1 || type > 4) return {};
@@ -410,6 +411,7 @@ std::string MenuKey(int type) {
     std::string key = FirstKey(action);
     if (key.empty() && action == kA) key = FirstKey(kUse);
     if (key.empty() && action == kA) key = FirstKey(kReload);
+    if (key.empty() && action == kX) key = FirstKey(kCrouch);
     return key;
 }
 
