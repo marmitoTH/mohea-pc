@@ -1,0 +1,122 @@
+A hitch log: a frame over 50 ms and three times the frames before it is logged with what it did (shaders compiled and
+their time, pipelines made, new textures and their uploads, the draw and sync time, the title thread's recording and
+waiting, the files read and their time), to find what stalls a level as it streams. On with XBE_PERF, or always in a
+build with asserts (the dev build), whose perf timers it turns on.
+
+diff --git a/runtime/core/diag.h b/runtime/core/diag.h
+--- a/runtime/core/diag.h
++++ b/runtime/core/diag.h
+@@ -9,6 +9,16 @@
+ inline bool Perf() {
+     static const bool on = std::getenv("XBE_PERF") != nullptr;
+     return on;
++}
++
++// a frame much longer than the ones before it logged with what it did: with XBE_PERF, or always in a build with asserts
++// (the dev build)
++inline bool Hitches() {
++#ifdef NDEBUG
++    return Perf();
++#else
++    return true;
++#endif
+ }
+ 
+ // XBE_CAPTURE_DIR: where F3 saves a frame, empty: F3 does not capture
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -41,6 +41,11 @@
+ #include "kernel/kernel.h"
+ 
+ using Microsoft::WRL::ComPtr;
++
++namespace kernel {
++// the reads so far (kernel/files.cpp): how many, their bytes and their time, nanoseconds
++extern std::atomic<uint64_t> g_reads, g_read_bytes, g_read_ns;
++}  // namespace kernel
+ 
+ namespace gpu {
+ 
+@@ -100,7 +105,7 @@
+ Perf g_perf;
+ struct PerfScope {
+     double& acc;
+-    bool on = diag::Perf();
++    bool on = diag::Perf() || diag::Hitches();
+     PerfClock::time_point t = on ? PerfClock::now() : PerfClock::time_point{};
+     ~PerfScope() {
+         if (on) acc += PerfMs(t);
+@@ -3382,6 +3387,35 @@
+     }
+ }
+ 
++// the hitch log: a frame over 50 ms and three times the frames before it, with what the frame did (a level's streaming,
++// a first draw's shaders and pipelines, new textures, waits)
++void LogHitch() {
++    static PerfClock::time_point last = PerfClock::now();
++    static double average = 16.7;
++    static Perf before;
++    static uint64_t reads_before = 0, read_bytes_before = 0, read_ns_before = 0, wait_before = 0, capture_before = 0;
++    double ms = PerfMs(last);
++    last = PerfClock::now();
++    uint64_t reads = kernel::g_reads.load(), read_bytes = kernel::g_read_bytes.load(), read_ns = kernel::g_read_ns.load();
++    uint64_t wait = g_perf_wait_ns.load(), capture = g_perf_capture_ns.load();
++    const Perf& p = g_perf;
++    if (ms > 50.0 && ms > average * 3.0)
++        LOGI("hitch: %.0f ms frame (%.1f ms before) | %llu shaders %.1f ms, %llu psos | %llu new tex, %llu tex uploads "
++             "%.2f MB %.1f ms | draw %.1f ms, sync %.1f ms, %llu read-backs | title: recording %.1f ms, waiting "
++             "%.1f ms | %llu reads %.2f MB %.1f ms",
++             ms, average, (unsigned long long)(p.shaders - before.shaders), p.compile - before.compile,
++             (unsigned long long)(p.psos - before.psos), (unsigned long long)(p.newtex - before.newtex),
++             (unsigned long long)(p.texups - before.texups), (p.texup_bytes - before.texup_bytes) / 1048576.0,
++             p.texup - before.texup, p.draw - before.draw, p.sync - before.sync,
++             (unsigned long long)(p.syncs - before.syncs), (capture - capture_before) / 1e6,
++             (wait - wait_before) / 1e6, (unsigned long long)(reads - reads_before),
++             (read_bytes - read_bytes_before) / 1048576.0, (read_ns - read_ns_before) / 1e6);
++    average = average * 0.9 + std::min(ms, 100.0) * 0.1;
++    before = p;
++    reads_before = reads, read_bytes_before = read_bytes, read_ns_before = read_ns;
++    wait_before = wait, capture_before = capture;
++}
++
+ void LogPerf() {
+     static PerfClock::time_point perf_start = PerfClock::now();
+     static uint64_t perf_frames = 0;
+@@ -3449,6 +3483,7 @@
+     ReleaseOldTextures();
+     ResetFrame();
+     CountFps();
++    if (diag::Hitches()) LogHitch();
+     if (diag::Perf()) LogPerf();
+     ApplySettings();
+ }
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -468,8 +468,12 @@
+ }
+ 
+ // pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
++// the reads so far, for the hitch log (gpu/d3d12.cpp): how many, their bytes and their time, nanoseconds
++std::atomic<uint64_t> g_reads{0}, g_read_bytes{0}, g_read_ns{0};
++
+ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+     uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
++    auto started = std::chrono::steady_clock::now();
+     auto f = FileFromHandle(h);
+     if (!f || (!f->fp && !f->entry)) return kInvalidHandle;
+     if (write && f->entry) return kAccessDenied;
+@@ -488,6 +492,12 @@
+         if (done < chunk) break;
+     }
+     f->pos = pos + n;
++    if (!write) {
++        g_reads++;
++        g_read_bytes += n;
++        g_read_ns += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                  std::chrono::steady_clock::now() - started).count());
++    }
+     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
+     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
+     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
