@@ -19,9 +19,17 @@ void Save(void* table);
 // The bindings, remapped from the overlay. The actions are the controller's buttons as the game's default layout has
 // them (the profile's own layout is left out, game/layout.cpp), then each stick direction, reload and use on their own
 // (each presses A for that action alone), and the scope's zoom in and out (the d-pad's up and down in a scope, which
-// its buttons and keys then drive alone; the d-pad and the wheel by default). In play a controller's buttons are put on the actions they are mapped
-// to (several may share one) and keys press the actions they are bound to; in the menus, the pause menu among them, a
-// controller is as it is and the default keys work too, so the d-pad, A, B, the arrows and Enter always work them.
+// its buttons and keys then drive alone; the d-pad and the wheel by default). In play a controller's buttons are put
+// on the actions they are mapped to (several may share one) and keys press the actions they are bound to; in the
+// menus, the pause menu among them, a controller is as it is and the default keys work too, so the d-pad, A, B, the
+// arrows and Enter always work them.
+enum Target : int {
+    kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger,
+    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb,
+    kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
+    kReload, kUse, kZoomIn, kZoomOut,
+    kTargetCount
+};
 constexpr int kPadButtons = 16;  // a controller's buttons, the first actions
 int Actions();
 bool OnPad(int action);  // a controller's button can drive it: not the stick directions
@@ -42,6 +50,13 @@ int PadPreset();
 void SetPadPreset(int preset);
 extern bool g_swap_sticks;  // the left stick looks and the right moves
 void ResetBindings();
+
+// the game's button prompts (game/prompts.cpp), any thread: the keys and the mouse were used last, rather than a
+// controller; and an action's first key, as the overlay shows it ("" for none)
+bool UsingKeyboard();
+std::string FirstKey(int action);
+// in play, where a controller is remapped (SetPlay lately), not in a menu or a tutorial's box
+bool InPlay();
 
 // a key for the overlay, UI thread: once every key is up, the next one or mouse button or wheel notch; Esc or a
 // controller's B cancels. CapturedKey: 0 while waiting, -1 cancelled, else the key, which ends it

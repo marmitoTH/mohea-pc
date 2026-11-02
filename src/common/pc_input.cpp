@@ -37,15 +37,7 @@ namespace {
 
 using clock = std::chrono::steady_clock;
 
-// what a key can drive: the controller's buttons, and each stick direction
-enum Target : int {
-    kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger,
-    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb,
-    kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
-    kReload, kUse, kZoomIn, kZoomOut,
-    kTargetCount
-};
-
+// what a key can drive (pc_input.h's Target): the controller's buttons, and each stick direction
 constexpr const char* kTargetNames[kTargetCount] = {
     "a", "b", "x", "y", "black", "white", "left_trigger", "right_trigger",
     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "left_thumb", "right_thumb",
@@ -164,6 +156,8 @@ std::array<int, kTargetCount> g_custom = PadDefaults();
 std::array<int, kTargetCount> g_pad = PadDefaults();
 std::atomic<HWND> g_hwnd{nullptr};
 std::atomic<AOnly> g_a_only{AOnly::Both};
+// the keys and the mouse used last, rather than a controller (the button prompts show keys then)
+std::atomic<bool> g_keyboard{false};
 
 // SetPlay: the player control ran lately (clock ticks until), and the player looks through a scope
 constexpr auto kPlayHold = std::chrono::milliseconds(150);
@@ -454,6 +448,15 @@ const char* ActionName(int action) { return kActionNames[action]; }
 
 int ListedAction(int i) { return kListed[i]; }
 
+bool UsingKeyboard() { return g_keyboard.load(); }
+
+bool InPlay() { return Ticks(clock::now()) < g_play_until.load(); }
+
+std::string FirstKey(int action) {
+    std::lock_guard lock(g_lock);
+    return g_keys[action].empty() ? std::string() : ShownName(g_keys[action].front());
+}
+
 std::string KeysText(int action) {
     std::lock_guard lock(g_lock);
     std::string text;
@@ -642,6 +645,13 @@ void Refresh() {
 }
 
 void Pad(int port, input::Pad& pad) {
+    // a controller used: its buttons, or a stick well past its centre
+    constexpr int kStickUsed = 16000;
+    bool used = pad.connected && pad.buttons;
+    for (uint8_t a : pad.analog) used = used || (pad.connected && a > kAnalogHeld);
+    for (int s : {pad.lx, pad.ly, pad.rx, pad.ry})
+        used = used || (pad.connected && (s > kStickUsed || -s > kStickUsed));
+    if (used) g_keyboard = false;
     // a controller's both sticks clicked open or close the overlay, once until let go: each port on its own, as the
     // ports are polled in turn; while the overlay is open the game gets no input
     constexpr uint16_t kBothThumbs = 0xC0;  // left and right thumb, input::Pad's buttons
@@ -675,6 +685,23 @@ void Pad(int port, input::Pad& pad) {
     // in play a controller's buttons on their actions (the keys below are bound to actions already); in the menus, the
     // pause menu among them, its buttons as they are, the d-pad, A and B working them
     bool play = Ticks(clock::now()) < g_play_until.load();
+    // back in play a controller's buttons held from the menus (A closing a tutorial, which the remap would make a
+    // jump) press nothing until all are let go
+    static std::array<std::atomic<bool>, 4> was_play{}, after_menu{};
+    if (ported) {
+        if (play && !was_play[port].exchange(true)) after_menu[port] = true;
+        if (!play) was_play[port] = false;
+        if (after_menu[port].load()) {
+            bool down = pad.buttons != 0;
+            for (uint8_t a : pad.analog) down = down || a > kAnalogHeld;
+            if (down) {
+                pad.buttons = 0;
+                std::fill(std::begin(pad.analog), std::end(pad.analog), uint8_t(0));
+            } else {
+                after_menu[port] = false;
+            }
+        }
+    }
     PadA from_pad{pad.analog[kA] > kAnalogHeld};
     if (pad.connected && play) from_pad = Remap(pad);
     if (port != 0) return;
@@ -738,6 +765,10 @@ void Pad(int port, input::Pad& pad) {
         float seconds = std::chrono::duration<float>(kRateWindow).count();
         rate_x = float(sum_x) / seconds;
         rate_y = float(sum_y) / seconds;
+        // the keys or the mouse used
+        bool keys = rate_x != 0.0f || rate_y != 0.0f;
+        for (bool h : held) keys = keys || h;
+        if (keys) g_keyboard = true;
     }
 
     // digital buttons: d-pad up/down/left/right, start, back, left thumb, right thumb
