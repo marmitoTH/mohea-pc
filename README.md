@@ -42,7 +42,7 @@ All off by default, they leave the original game as it was.
 ### Controls
 - **Controllers** - Xbox, PlayStation and Switch controllers, with hot plugging and rumble.
 - **Keyboard and mouse** - Play with WASD and the mouse, with adjustable sensitivity and inverted Y. Switching between controller and keyboard is seamless.
-- **Remapping** - Every action can be rebound in the overlay, for the controller and the keyboard, with Reload and Use on buttons of their own if you like. The controller has the game's four layouts (Sharp Shooter, Commander, Recon, Reloader), a **Modern** one (A jump, B crouch, X use, Y switch weapon, bumpers for grenade and adrenaline) and your own **Custom** one. The menus always keep the standard controls. The in-game button prompts and tutorials show the buttons as remapped, or the key names on the keyboard ("Press [E] to pick up").
+- **Remapping** - Every action can be rebound in the overlay, for the controller and the keyboard, with Reload and Use on buttons of their own if you like. The controller has the game's four layouts (Sharp Shooter, Commander, Recon, Reloader), a **Modern** one (A jump, B crouch, X use, Y switch weapon, bumpers for grenade and adrenaline) and your own **Custom** one. The menus always keep the standard controls. The in-game button prompts and tutorials show the buttons as remapped, or the key names on the keyboard ("Press [E] to pick up"), and so does the menus' button bar ("[E] Select  [Q] Back").
 
 ### Miscellaneous
 - **Saves** - Profiles and saved games are kept beside the exe, as on the console's hard drive.
