@@ -15,6 +15,10 @@ extern uint32_t g_preset;
 // the preset, 0 (off) to 4
 uint32_t Preset();
 
+// every preset's shaders compiled ahead into the renderer's shader cache (gpu/backend.h PrecompileShader), the one
+// set first
+void Precompile();
+
 // render thread, from the renderer extension (common/sharpen.cpp)
 class Pass {
 public:

@@ -15,6 +15,9 @@ extern bool g_on;
 float Strength();
 void SetStrength(float v);
 
+// its shaders compiled ahead into the renderer's shader cache (gpu/backend.h PrecompileShader)
+void Precompile();
+
 // settings file: ssao_strength (ssao is a GameInfo option)
 void Load(const void* table);
 void Save(void* table);

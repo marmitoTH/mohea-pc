@@ -7,6 +7,7 @@
 
 #include "common/smaa/AreaTex.h"
 #include "common/smaa/SearchTex.h"
+#include "gpu/backend.h"
 #include "core/log.h"
 
 namespace smaa {
@@ -222,6 +223,17 @@ bool Pass::Run(gpu::Context& ctx, gpu::Target& rt) {
     ctx.Pass(hlsl, "blend", rt.fmt, ctx.View(rt), rt.w, rt.h, src3, fmt3, p, -1.0f);
     LOG_FIRST(1, "smaa: %ux%u, preset %u", rt.w, rt.h, preset);
     return true;
+}
+
+void Precompile() {
+    // every preset's, the one set first: each is a source of its own, so one picked in the overlay is ready too
+    uint32_t set = Preset();
+    for (uint32_t i = 0; i <= 4; i++) {
+        uint32_t preset = i == 0 ? set : i;
+        if (!preset || (i != 0 && preset == set)) continue;
+        for (const char* entry : {"edges", "weights", "blend"}) gpu::PrecompileShader(Hlsl(preset), entry, "ps_5_0");
+        gpu::PrecompileShader(Hlsl(preset), "vs", "vs_5_0");
+    }
 }
 
 }  // namespace smaa

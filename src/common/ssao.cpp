@@ -8,6 +8,7 @@
 #include <toml++/toml.hpp>
 
 #include "core/log.h"
+#include "gpu/backend.h"
 
 namespace ssao {
 
@@ -220,6 +221,11 @@ bool Pass::Run(gpu::Context& ctx, const gpu::State& s, gpu::Target& rt, gpu::Tar
     ctx.Transition(ds->res.Get(), ds->state, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     LOG_FIRST(1, "ssao: %ux%u, strength %.2f", ao_w_, ao_h_, strength);
     return true;
+}
+
+void Precompile() {
+    for (const char* entry : {"ao", "comp"}) gpu::PrecompileShader(kHlsl, entry, "ps_5_0");
+    gpu::PrecompileShader(kHlsl, "vs", "vs_5_0");
 }
 
 }  // namespace ssao

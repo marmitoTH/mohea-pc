@@ -1,0 +1,140 @@
+Shaders compiled ahead beyond vertex programs: PrecompileShader queues any shader (its source, entry point and
+profile) on the precompile threads, the renderer queues its own at startup (the depth copy, the blit, the clear, the
+point sprites) and an extension can queue its passes' (Context::Pass: the entry with ps_5_0, and vs). A level's first
+frame, which made them on the spot, no longer stalls on them.
+
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -2,6 +2,7 @@
+ #include <atomic>
+ #include <cstdint>
+ #include <memory>
++#include <string>
+ 
+ #include "gpu/state.h"
+ 
+@@ -56,7 +57,11 @@
+ };
+ 
+ std::unique_ptr<Backend> CreateBackend();
+-// a vertex program the title made, compiled ahead on threads of its own into the shader cache (gpu/d3d12.cpp)
++// a shader compiled ahead on threads of its own into the shader cache, so the draw that needs it finds it there
++// (gpu/d3d12.cpp): its source, entry point and profile as the renderer compiles it (an extension's Context::Pass:
++// the pass's entry with "ps_5_0", and "vs" with "vs_5_0")
++void PrecompileShader(std::string src, const char* entry, const char* profile);
++// a vertex program the title made
+ void PrecompileVertexShader(const VertexShader& vs);
+ // the same backend driven from a thread of its own: calls return once recorded
+ std::unique_ptr<Backend> CreateThreadedBackend(std::unique_ptr<Backend> inner);
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -109,7 +109,7 @@
+     uint64_t vs_prog = 0, vs_fixed = 0, ps_prog = 0, ps_fixed = 0;
+ };
+ Perf g_perf;
+-std::atomic<uint64_t> g_precompiled{0};  // vertex programs compiled ahead (Precompiler)
++std::atomic<uint64_t> g_precompiled{0};  // shaders compiled ahead (Precompiler)
+ struct PerfScope {
+     double& acc;
+     bool on = diag::Perf() || diag::Hitches();
+@@ -847,6 +847,12 @@
+                         ui_heap_->GetCPUDescriptorHandleForHeapStart(), ui_heap_->GetGPUDescriptorHandleForHeapStart());
+     LoadSettings();
+     Begin();
++    // the renderer's own shaders, made at their first use: the depth copy, the blit, the clear, points
++    for (const char* hlsl : {kDepthHlsl, kBlitHlsl, kClearHlsl}) {
++        PrecompileShader(hlsl, "vs", "vs_5_0");
++        PrecompileShader(hlsl, "psmain", "ps_5_0");
++    }
++    PrecompileShader(PointHlsl(), "main", "gs_5_0");
+     LOGI("d3d12: %ux%u guest, %ux%u window, render scale %.3f", width, height, bb_w_, bb_h_, scale_);
+     return true;
+ }
+@@ -1488,19 +1494,23 @@
+ 
+ constexpr UINT kCompileFlags = D3DCOMPILE_OPTIMIZATION_LEVEL1;
+ 
+-// Vertex programs compiled as the title makes them (PrecompileVertexShader), while a level loads, on threads of their
+-// own into the shader cache, for the declaration's inputs as a draw most likely reads them: the draw then finds its
+-// shader there instead of compiling it. One with other inputs, a screen quad's or the fixed function pipeline's is
+-// still compiled by its draw
++// Shaders compiled ahead on threads of their own into the shader cache (PrecompileShader), so the draw that needs one
++// finds it there instead of compiling it: vertex programs as the title makes them, while a level loads, for the
++// declaration's inputs as a draw most likely reads them (PrecompileVertexShader; one with other inputs, a screen
++// quad's or the fixed function pipeline's is still compiled by its draw), and the renderer's and its extension's own
++// at startup
+ class Precompiler {
+ public:
+-    void Add(std::string src) {
++    struct Job {
++        std::string src, entry, profile;
++    };
++    void Add(Job job) {
+         std::lock_guard lock(m_);
+         if (threads_.empty()) {
+             unsigned n = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+             for (unsigned i = 0; i < n; i++) threads_.emplace_back([this] { Run(); });
+         }
+-        queue_.push_back(std::move(src));
++        queue_.push_back(std::move(job));
+         cv_.notify_one();
+     }
+ 
+@@ -1508,18 +1518,19 @@
+     void Run() {
+         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+         for (;;) {
+-            std::string src;
++            Job job;
+             {
+                 std::unique_lock lock(m_);
+                 cv_.wait(lock, [&] { return !queue_.empty(); });
+-                src = std::move(queue_.front());
++                job = std::move(queue_.front());
+                 queue_.pop_front();
+             }
+-            uint64_t hash = ShaderHash(src, "main", "vs_5_0");
++            const char *entry = job.entry.c_str(), *profile = job.profile.c_str();
++            uint64_t hash = ShaderHash(job.src, entry, profile);
+             std::error_code ec;
+             if (std::filesystem::exists(ShaderCachePath(hash), ec)) continue;
+             ComPtr<ID3DBlob> code;
+-            if (SUCCEEDED(D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, "main", "vs_5_0",
++            if (SUCCEEDED(D3DCompile(job.src.data(), job.src.size(), nullptr, nullptr, nullptr, entry, profile,
+                                      kCompileFlags, 0, &code, nullptr))) {
+                 CacheShader(hash, code.Get());
+                 g_precompiled++;
+@@ -1529,7 +1540,7 @@
+ 
+     std::mutex m_;
+     std::condition_variable cv_;
+-    std::deque<std::string> queue_;
++    std::deque<Job> queue_;
+     std::vector<std::thread> threads_;  // run to the end: detached at exit with the process
+ };
+ 
+@@ -3910,15 +3921,19 @@
+ 
+ std::unique_ptr<Backend> CreateBackend() { return std::make_unique<D3D12Backend>(); }
+ 
++void PrecompileShader(std::string src, const char* entry, const char* profile) {
++    static Precompiler precompiler;
++    precompiler.Add({std::move(src), entry, profile});
++}
++
+ void PrecompileVertexShader(const VertexShader& vs) {
+-    static Precompiler precompiler;
+     if (vs.program.empty() || vs.program_type != 0x2078) return;
+     uint64_t decode = 0;
+     uint16_t regs = DeclaredRegs(vs, decode);
+     if (!regs) return;
+-    precompiler.Add(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, decode)));
++    PrecompileShader(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, decode)), "main", "vs_5_0");
+     // the same inputs converted on the CPU, which reach the shader as plain floats
+-    if (decode) precompiler.Add(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, 0)));
++    if (decode) PrecompileShader(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, 0)), "main", "vs_5_0");
+ }
+ 
+ }  // namespace gpu

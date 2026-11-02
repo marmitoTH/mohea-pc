@@ -12,6 +12,7 @@
 #include "common/options.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
+#include "gpu/backend.h"
 #include "core/log.h"
 #include "gpu/ext.h"
 
@@ -82,6 +83,15 @@ public:
         marker::Sampled(flags, info);
     }
     void Constants(float (*)[4], float* ext, const gpu::Target*, uint32_t) override { marker::Constants(ext); }
+
+    // the renderer started, or its targets dropped: the effects' shaders compiled ahead, so their first frame does not
+    // stall on them (those already cached are skipped)
+    void Reset(gpu::Context&) override {
+        smaa::Precompile();
+        ssao::Precompile();
+        gpu::PrecompileShader(kHlsl, "cas", "ps_5_0");
+        gpu::PrecompileShader(kHlsl, "vs", "vs_5_0");
+    }
 
     bool Bound(gpu::Context& ctx, const gpu::State& s, gpu::Target* rt, gpu::Target* ds, bool) override {
         uint64_t frame = ctx.Presents();
