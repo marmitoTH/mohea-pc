@@ -1,0 +1,225 @@
+Vertex programs compiled ahead: as the title makes a vertex shader (CreateVertexShader, mostly while a level loads)
+its program is compiled on threads of their own into the shader cache, for the declaration's inputs as a draw most
+likely reads them (raw, and converted on the CPU), so the draw finds it there instead of compiling it then. The hitch
+log counts the shaders draws still compile, by kind, and those compiled ahead.
+
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -56,6 +56,8 @@
+ };
+ 
+ std::unique_ptr<Backend> CreateBackend();
++// a vertex program the title made, compiled ahead on threads of its own into the shader cache (gpu/d3d12.cpp)
++void PrecompileVertexShader(const VertexShader& vs);
+ // the same backend driven from a thread of its own: calls return once recorded
+ std::unique_ptr<Backend> CreateThreadedBackend(std::unique_ptr<Backend> inner);
+ 
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -14,7 +14,9 @@
+ 
+ #include <algorithm>
+ #include <array>
++#include <atomic>
+ #include <chrono>
++#include <condition_variable>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+@@ -22,6 +24,7 @@
+ #include <filesystem>
+ #include <mutex>
+ #include <optional>
++#include <thread>
+ #include <unordered_map>
+ #include <unordered_set>
+ 
+@@ -101,8 +104,12 @@
+     uint64_t shaders = 0;
+     uint64_t raw = 0;
+     uint64_t lates = 0;
++    // shaders compiled by draws, by kind: a vertex program, the fixed function vertex pipeline, pixel combiners, the
++    // fixed function pixel stages
++    uint64_t vs_prog = 0, vs_fixed = 0, ps_prog = 0, ps_fixed = 0;
+ };
+ Perf g_perf;
++std::atomic<uint64_t> g_precompiled{0};  // vertex programs compiled ahead (Precompiler)
+ struct PerfScope {
+     double& acc;
+     bool on = diag::Perf() || diag::Hitches();
+@@ -1472,11 +1479,62 @@
+     else std::filesystem::remove(part, ec);
+ }
+ 
+-ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
+-    // one source can hold several entry points
++// a shader's hash: its source, entry point and profile (one source can hold several entry points)
++uint64_t ShaderHash(const std::string& src, const char* entry, const char* profile) {
+     uint64_t profile_seed = Hash(profile, std::strlen(profile));
+     uint64_t entry_seed = Hash(entry, std::strlen(entry), profile_seed);
+-    hash = Hash(src.data(), src.size(), entry_seed);
++    return Hash(src.data(), src.size(), entry_seed);
++}
++
++constexpr UINT kCompileFlags = D3DCOMPILE_OPTIMIZATION_LEVEL1;
++
++// Vertex programs compiled as the title makes them (PrecompileVertexShader), while a level loads, on threads of their
++// own into the shader cache, for the declaration's inputs as a draw most likely reads them: the draw then finds its
++// shader there instead of compiling it. One with other inputs, a screen quad's or the fixed function pipeline's is
++// still compiled by its draw
++class Precompiler {
++public:
++    void Add(std::string src) {
++        std::lock_guard lock(m_);
++        if (threads_.empty()) {
++            unsigned n = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
++            for (unsigned i = 0; i < n; i++) threads_.emplace_back([this] { Run(); });
++        }
++        queue_.push_back(std::move(src));
++        cv_.notify_one();
++    }
++
++private:
++    void Run() {
++        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
++        for (;;) {
++            std::string src;
++            {
++                std::unique_lock lock(m_);
++                cv_.wait(lock, [&] { return !queue_.empty(); });
++                src = std::move(queue_.front());
++                queue_.pop_front();
++            }
++            uint64_t hash = ShaderHash(src, "main", "vs_5_0");
++            std::error_code ec;
++            if (std::filesystem::exists(ShaderCachePath(hash), ec)) continue;
++            ComPtr<ID3DBlob> code;
++            if (SUCCEEDED(D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, "main", "vs_5_0",
++                                     kCompileFlags, 0, &code, nullptr))) {
++                CacheShader(hash, code.Get());
++                g_precompiled++;
++            }
++        }
++    }
++
++    std::mutex m_;
++    std::condition_variable cv_;
++    std::deque<std::string> queue_;
++    std::vector<std::thread> threads_;  // run to the end: detached at exit with the process
++};
++
++ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
++    hash = ShaderHash(src, entry, profile);
+     auto it = blobs_.find(hash);
+     if (it != blobs_.end()) return it->second.Get();
+     ComPtr<ID3DBlob> code;
+@@ -1487,8 +1545,8 @@
+     }
+     PerfScope perf_compile{g_perf.compile};
+     g_perf.shaders++;
+-    HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, entry, profile,
+-                            D3DCOMPILE_OPTIMIZATION_LEVEL1, 0, &code, &err);
++    HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, entry, profile, kCompileFlags, 0, &code,
++                            &err);
+     if (FAILED(hr)) {
+         LOGE("d3d12: %s compile failed: %s", profile, err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
+         LOGE("%s", src.c_str());
+@@ -2243,7 +2301,9 @@
+         return;
+     }
+     std::string src = ReversedDepthHlsl(VertexHlsl(s, a, sh));
++    uint64_t compiled = g_perf.shaders;
+     sh.vs_code = Compile(sh.quad ? QuadHlsl(std::move(src)) : src, "main", "vs_5_0", sh.vh);
++    if (g_perf.shaders != compiled) (sh.prog ? g_perf.vs_prog : g_perf.vs_fixed)++;
+     shader_src_[sh.vkey] = sh.vh;
+ }
+ 
+@@ -2272,7 +2332,9 @@
+         sh.ph = pit->second;
+         return;
+     }
++    uint64_t compiled = g_perf.shaders;
+     sh.ps_code = Compile(PixelHlsl(pk), "main", "ps_5_0", sh.ph);
++    if (g_perf.shaders != compiled) (pk.programmable ? g_perf.ps_prog : g_perf.ps_fixed)++;
+     shader_src_[sh.pkey ^ kPixelKeySalt] = sh.ph;
+ }
+ 
+@@ -3443,10 +3505,14 @@
+     uint64_t wait = g_perf_wait_ns.load(), capture = g_perf_capture_ns.load();
+     const Perf& p = g_perf;
+     if (ms > 50.0 && ms > average * 3.0)
+-        LOGI("hitch: %.0f ms frame (%.1f ms before) | %llu shaders %.1f ms, %llu psos | %llu new tex, %llu tex uploads "
++        LOGI("hitch: %.0f ms frame (%.1f ms before) | %llu shaders %.1f ms (vertex %llu program %llu fixed, pixel %llu "
++             "combiners %llu fixed; %llu precompiled so far), %llu psos | %llu new tex, %llu tex uploads "
+              "%.2f MB %.1f ms | draw %.1f ms, sync %.1f ms, %llu read-backs | title: recording %.1f ms, waiting "
+              "%.1f ms | %llu reads %.2f MB %.1f ms",
+              ms, average, (unsigned long long)(p.shaders - before.shaders), p.compile - before.compile,
++             (unsigned long long)(p.vs_prog - before.vs_prog), (unsigned long long)(p.vs_fixed - before.vs_fixed),
++             (unsigned long long)(p.ps_prog - before.ps_prog), (unsigned long long)(p.ps_fixed - before.ps_fixed),
++             (unsigned long long)g_precompiled.load(),
+              (unsigned long long)(p.psos - before.psos), (unsigned long long)(p.newtex - before.newtex),
+              (unsigned long long)(p.texups - before.texups), (p.texup_bytes - before.texup_bytes) / 1048576.0,
+              p.texup - before.texup, p.draw - before.draw, p.sync - before.sync,
+@@ -3844,4 +3910,15 @@
+ 
+ std::unique_ptr<Backend> CreateBackend() { return std::make_unique<D3D12Backend>(); }
+ 
++void PrecompileVertexShader(const VertexShader& vs) {
++    static Precompiler precompiler;
++    if (vs.program.empty() || vs.program_type != 0x2078) return;
++    uint64_t decode = 0;
++    uint16_t regs = DeclaredRegs(vs, decode);
++    if (!regs) return;
++    precompiler.Add(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, decode)));
++    // the same inputs converted on the CPU, which reach the shader as plain floats
++    if (decode) precompiler.Add(ReversedDepthHlsl(VertexProgramHlsl(vs.program, regs, 0)));
++}
++
+ }  // namespace gpu
+diff --git a/runtime/gpu/vertex.cpp b/runtime/gpu/vertex.cpp
+--- a/runtime/gpu/vertex.cpp
++++ b/runtime/gpu/vertex.cpp
+@@ -440,6 +440,18 @@
+     vs.stream_stride[0] = off;
+ }
+ 
++uint16_t DeclaredRegs(const VertexShader& vs, uint64_t& decode) {
++    uint16_t regs = 0;
++    decode = 0;
++    for (int r = 0; r < 16; r++) {
++        const auto& in = vs.inputs[size_t(r)];
++        if (in.stream < 0 || !in.type || in.type == kTypeNone) continue;
++        regs |= uint16_t(1u << r);
++        decode |= uint64_t(HostFormat(in.type).decode) << (r * 4);
++    }
++    return regs;
++}
++
+ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* ip, Assembled& out) {
+     ResetAssembled(out);
+     if (!count || prim < 1 || prim > 10) return false;
+diff --git a/runtime/gpu/vertex.h b/runtime/gpu/vertex.h
+--- a/runtime/gpu/vertex.h
++++ b/runtime/gpu/vertex.h
+@@ -59,4 +59,8 @@
+ // indices: the title's 16 bit indices, null for an unindexed draw
+ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices, Assembled& out);
+ 
++// the input registers a declaration feeds and their decode (Assembled::regs, Assembled::decode), as a draw with all its
++// streams bound reads them raw: what a vertex program's shader is most likely built for
++uint16_t DeclaredRegs(const VertexShader& vs, uint64_t& decode);
++
+ }  // namespace gpu
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -887,6 +887,7 @@
+         for (uint32_t i = 0; i < n * 4; i++) vs->program.push_back(R32(func + 4 + i * 4));
+     }
+     gpu::ParseDeclaration(*vs);
++    gpu::PrecompileVertexShader(*vs);
+     uint32_t rec = mem::AllocSystem(16, 16);
+     vs->handle = rec | 1;
+     g_vs[vs->handle] = vs;
