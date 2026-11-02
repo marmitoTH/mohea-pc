@@ -20,15 +20,16 @@ void Save(void* table);
 // them (the profile's own layout is left out, game/layout.cpp), then each stick direction, reload and use on their own
 // (each presses A for that action alone), the scope's zoom in and out (the d-pad's up and down in a scope, which its
 // buttons and keys then drive alone; the d-pad and the wheel by default), and the keys' crouch and prone (each a
-// toggle with standing, game/stance.cpp; the controller's X cycles crouched and prone as the game has it). In play a
-// controller's buttons are put on the actions they are mapped to (several may share one) and keys press the actions
-// they are bound to; in the menus, the pause menu among them, a controller is as it is and the default keys work too,
-// so the d-pad, A, B, the arrows and Enter always work them.
+// toggle with standing; the controller's X cycles crouched and prone as the game has it) and weapons (the primary,
+// the secondary, the grenades; the controller's B cycles them), game/play_keys.cpp. In play a controller's buttons
+// are put on the actions they are mapped to (several may share one) and keys press the actions they are bound to; in
+// the menus, the pause menu among them, a controller is as it is and the default keys work too, so the d-pad, A, B,
+// the arrows and Enter always work them.
 enum Target : int {
     kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger,
     kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb,
     kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
-    kReload, kUse, kZoomIn, kZoomOut, kCrouch, kProne,
+    kReload, kUse, kZoomIn, kZoomOut, kCrouch, kProne, kWeapon1, kWeapon2, kGrenades,
     kTargetCount
 };
 constexpr int kPadButtons = 16;  // a controller's buttons, the first actions
@@ -80,9 +81,11 @@ void Refresh();
 // a polled controller: the keys and the mouse merged into port 0, which is connected without a controller too
 void Pad(int port, input::Pad& pad);
 
-// crouch or prone pressed on the keys in play since the last call (game/stance.cpp, the game's thread), or none
+// crouch or prone pressed on the keys in play since the last call (game/play_keys.cpp, the game's thread), or none;
+// and a weapon, 0 the primary, 1 the secondary, 2 the grenades, -1 none
 enum class Stance { None, Crouch, Prone };
 Stance TakeStance();
+int TakeWeapon();
 
 // the A button's two actions in game, reload and use (game/actions.cpp): which one alone the keys press it for, as of
 // the last poll; Both when a controller's A or a key bound to A itself holds it, or nothing does

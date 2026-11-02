@@ -42,7 +42,8 @@ constexpr const char* kTargetNames[kTargetCount] = {
     "a", "b", "x", "y", "black", "white", "left_trigger", "right_trigger",
     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "left_thumb", "right_thumb",
     "move_forward", "move_back", "move_left", "move_right", "look_up", "look_down", "look_left", "look_right",
-    "reload", "use", "zoom_in", "zoom_out", "crouch", "prone"};
+    "reload", "use", "zoom_in", "zoom_out", "crouch", "prone",
+    "weapon_1", "weapon_2", "grenades"};
 
 // what each does in game, the default layout's button after it
 constexpr const char* kActionNames[kTargetCount] = {
@@ -53,13 +54,15 @@ constexpr const char* kActionNames[kTargetCount] = {
     "Move forward",              "Move back",                 "Move left",               "Move right",
     "Look up",                   "Look down",                 "Look left",               "Look right",
     "Reload",                    "Use",                       "Scope zoom in",           "Scope zoom out",
-    "Crouch (toggle)",           "Prone (toggle)"};
+    "Crouch (toggle)",           "Prone (toggle)",            "Primary weapon",          "Secondary weapon",
+    "Grenades"};
 
 // the overlay's order: moving and looking, the actions, reload and use beside A
 constexpr Target kListed[kTargetCount] = {
     kMoveForward, kMoveBack, kMoveLeft, kMoveRight, kLookUp, kLookDown, kLookLeft, kLookRight,
     kRightTrigger, kLeftTrigger, kA, kReload, kUse, kB, kX, kCrouch, kProne, kY, kRightThumb, kLeftThumb,
-    kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kZoomIn, kZoomOut, kBlack, kWhite, kStart, kBack};
+    kWeapon1, kWeapon2, kGrenades, kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kZoomIn, kZoomOut, kBlack, kWhite,
+    kStart, kBack};
 
 // a controller's buttons, in the targets' order: the analog ones (input::Pad's analog), then the digital ones (its
 // buttons' bits)
@@ -74,22 +77,25 @@ constexpr uint8_t kAnalogHeld = 0x7F;
 constexpr int kWheelUp = 0x100, kWheelDown = 0x101;
 
 // the game's Sharp Shooter layout (Options, Controller Settings): A action/reload (here R reload, E use: each
-// presses A for the one; game/actions.cpp), B change weapon, X crouch/prone (here C crouch and Ctrl prone, each a
-// toggle with standing: game/stance.cpp),
+// presses A for the one; game/actions.cpp), B change weapon (here also 1, 2 and 3 for the primary, the secondary and
+// the grenades: game/play_keys.cpp), X crouch/prone (here C crouch and Ctrl prone, each a toggle with standing),
 // Y jump/stand, black adrenaline, white medkit, left trigger aim, right trigger fire, back mission map, start pause,
 // left thumb click position squad, right thumb click melee, d-pad grenade and recall squad. Enter is start: the title
 // screen takes only start
 std::array<std::vector<int>, kTargetCount> Defaults() {
     std::array<std::vector<int>, kTargetCount> k;
     k[kReload] = {'R'};
-    k[kUse] = {'E'};
+    k[kUse] = {'E', 'F'};
     k[kZoomIn] = {kWheelUp};
     k[kZoomOut] = {kWheelDown};
     k[kB] = {'Q', kWheelUp, kWheelDown, VK_BACK};
     k[kCrouch] = {'C'};
     k[kProne] = {VK_LCONTROL};
+    k[kWeapon1] = {'1'};
+    k[kWeapon2] = {'2'};
+    k[kGrenades] = {'3'};
     k[kY] = {VK_SPACE};
-    k[kBlack] = {'F'};
+    k[kBlack] = {'4'};
     k[kWhite] = {'H'};
     k[kLeftTrigger] = {VK_RBUTTON};
     k[kRightTrigger] = {VK_LBUTTON};
@@ -160,6 +166,7 @@ std::array<int, kTargetCount> g_pad = PadDefaults();
 std::atomic<HWND> g_hwnd{nullptr};
 std::atomic<AOnly> g_a_only{AOnly::Both};
 std::atomic<Stance> g_stance{Stance::None};
+std::atomic<int> g_weapon{-1};
 // the keys and the mouse used last, rather than a controller (the button prompts show keys then)
 std::atomic<bool> g_keyboard{false};
 
@@ -433,6 +440,11 @@ void Load(const void* table) {
             return false;
         });
     }
+    // and one from before the weapons had their keys has adrenaline on F, which is use's now: on 4
+    if (!keys->get(kTargetNames[kWeapon1]) && g_keys[kBlack] == std::vector<int>{'F'}) {
+        g_keys[kBlack] = {'4'};
+        if (std::find(g_keys[kUse].begin(), g_keys[kUse].end(), 'F') == g_keys[kUse].end()) g_keys[kUse].push_back('F');
+    }
 }
 
 void Save(void* table) {
@@ -464,6 +476,8 @@ int ListedAction(int i) { return kListed[i]; }
 bool UsingKeyboard() { return g_keyboard.load(); }
 
 Stance TakeStance() { return g_stance.exchange(Stance::None); }
+
+int TakeWeapon() { return g_weapon.exchange(-1); }
 
 bool InPlay() { return Ticks(clock::now()) < g_play_until.load(); }
 
@@ -769,6 +783,12 @@ void Pad(int port, input::Pad& pad) {
         // in the menus crouch's keys are X's too (the profiles' delete, the pause menu's map), X having none of its own
         // by default
         if (!play) held[kX] = held[kX] || held[kCrouch];
+        // and the move keys the d-pad's, so they move through the menus as the arrows do (in play they move alone)
+        if (!play) {
+            constexpr std::pair<Target, Target> kMenuMoves[] = {
+                {kMoveForward, kDpadUp}, {kMoveBack, kDpadDown}, {kMoveLeft, kDpadLeft}, {kMoveRight, kDpadRight}};
+            for (auto [move, dpad] : kMenuMoves) held[dpad] = held[dpad] || held[move];
+        }
         // the zoom is the d-pad's up (in, narrowing the field of view) and down (out)
         if (in_scope) {
             held[kDpadUp] = held[kZoomIn];
@@ -804,7 +824,11 @@ void Pad(int port, input::Pad& pad) {
     static std::atomic<bool> crouch_held{false}, prone_held{false};
     if (crouch_held.exchange(held[kCrouch]) != held[kCrouch] && held[kCrouch] && play) g_stance = Stance::Crouch;
     if (prone_held.exchange(held[kProne]) != held[kProne] && held[kProne] && play) g_stance = Stance::Prone;
-
+    // and a weapon
+    static std::array<std::atomic<bool>, 3> weapon_held{};
+    for (int i = 0; i < 3; i++)
+        if (weapon_held[i].exchange(held[kWeapon1 + i]) != held[kWeapon1 + i] && held[kWeapon1 + i] && play)
+            g_weapon = i;
     // keys push a stick fully over what the controller has, a diagonal as far as a controller's stick goes there: an
     // Xbox 360 pad's left stick pushed into a diagonal reads about 25900 an axis, 1.10 to 1.14 times a straight push
     // (both axes at full, 1.41, ran faster than straight; 1.0 ran slower: the game's stick shaping and its walk and
