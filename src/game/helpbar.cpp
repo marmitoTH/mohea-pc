@@ -1,7 +1,8 @@
-// The menus' help bar on the keys: the buttons along the bottom ("A Select  B Back", the pause menu's "Back Map") as
-// the keys that press them ("[E] Select  [Q] Back"). The menus are EA's Apt movies (Flash: DATA/SHARED/UI/FE/mohfe.viv),
-// the help bar scrns/helpBar.big, which each screen asks for its buttons (displayIcons, a list of button types and of
-// labels, "$HB_Select", "$HB_Back" and so on, string table names). For each one show(iconType, iconLable) makes an icon
+// The menus' buttons on the keys: the help bar's along the bottom ("A Select  B Back", the pause menu's "Back Map")
+// and the dialogs' choices ("A Yes", "B No") as the keys that press them ("[E] Select  [Q] Back"). The menus are EA's
+// Apt movies (Flash: DATA/SHARED/UI/FE/mohfe.viv), the help bar scrns/helpBar.big, which each screen asks for its
+// buttons (displayIcons, a list of button types and of labels, "$HB_Select", "$HB_Back" and so on, string table
+// names). For each one show(iconType, iconLable) makes an icon
 // (mcButtonIconSymbol: a button glyph, platformIcon, and its label, iconText) at the frame for the button (type 1 A,
 // 2 B, 3 X, 4 Y) and gives the label its text, which the text field makes the string's when it starts with $ or #
 // (sub_00171270, by sub_001710A0, cdecl (text, wide text out)).
@@ -12,10 +13,11 @@
 // for the movie) for "_" and the type, which is "" on a controller and the key marked out ($, \x01, the key, \x02) on
 // the keys; the label is that before the string's name, and the glyph is hidden unless it is "". The marked key is
 // made "[KEY] " as the text is made. findStartX() measures the labels so, and it and displayIcons() space them as
-// extern says, closer without the glyph. The bar is made as a screen opens, so a device switched to shows from the
-// next screen on.
+// extern says, closer without the glyph. A dialog's choices are the same (scrns/dialogueWindow.apt, below). The bar
+// is made as a screen opens, so a device switched to shows from the next screen on.
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -29,14 +31,14 @@ namespace {
 
 using namespace pc_input;
 
-// The help bar's functions in scrns/helpBar.apt, as it ships: each one's DefineFunction, its body 0x1C after it
-struct Function {
-    uint32_t def, size;
+// Code written anew: a function's body (after its DefineFunction, 0x1C long), its rest made 1 byte actions never run
+// (the linker stops at an End, 0), or a block of actions, an End after it
+struct Code {
+    uint32_t start, size;
+    bool block;
 };
-constexpr uint32_t kMainBlock = 0x1810, kBody = 0x1C;
-constexpr Function kDisplayIcons{0x1AB4, 0x254}, kShow{0x1E74, 0x1C2}, kFindStartX{0x23A8, 0x132};
-constexpr uint32_t kFunctionsCrc = 0x8A149A46;  // the three, displayIcons' DefineFunction to findStartX's end
-constexpr uint32_t kMovieAlloc = 0x534410;      // the movies' allocator, cdecl (size)
+constexpr uint32_t kBody = 0x1C;
+constexpr uint32_t kMovieAlloc = 0x534410;  // the movies' allocator, cdecl (size)
 constexpr char kMark = '\x01', kMarkEnd = '\x02';
 
 uint32_t& U32(uint8_t* base, uint32_t a) { return *reinterpret_cast<uint32_t*>(base + a); }
@@ -51,7 +53,7 @@ uint32_t Crc32(const uint8_t* p, size_t n) {
 }
 
 // The .const: entries (type, value) at +0x1C (a pointer by now), their count at +0x18; type 1 a string (its offset in
-// the .const), 6 a number (0 its only one here), 7 an integer
+// the .const), 3 undefined, 6 a number (0 its only one here), 7 an integer
 struct Consts {
     uint8_t* base;
     uint32_t file, entries, count;
@@ -70,24 +72,26 @@ struct Consts {
 };
 
 // Apt bytecode, Flash's actions: a Push's values are its count and an array of .const entries, which the linker makes
-// the values themselves, so each Push has an array of its own: the old functions', reused. A branch's offset is from
-// its end
-using Value = std::variant<const char*, int>;
+// the values themselves, so each Push has an array of its own: the old code's, reused. A branch's offset is from its
+// end
+struct Undefined {};
+using Value = std::variant<const char*, int, Undefined>;
 struct Push {
     size_t at;  // in the code
     std::vector<int> entries;
 };
 enum Op : uint8_t {
-    kSub = 0x0B, kDivide = 0x0D, kNot = 0x12, kPop = 0x17, kGetVar = 0x1C, kSetVar = 0x1D, kDefineLocal = 0x3C,
-    kReturn = 0x3E, kDefineLocal2 = 0x41, kAdd2 = 0x47, kLess2 = 0x48, kToNumber = 0x4A, kToString = 0x4B,
-    kGetMember = 0x4E, kSetMember = 0x4F, kIncrement = 0x50, kCallMethod = 0x52, kStrictEquals = 0x66, kPush = 0x96,
-    kJump = 0x99, kDefineFunction = 0x9B, kIf = 0x9D
+    kEnd = 0x00, kSub = 0x0B, kMultiply = 0x0C, kDivide = 0x0D, kNot = 0x12, kPop = 0x17, kGetVar = 0x1C,
+    kSetVar = 0x1D, kDefineLocal = 0x3C, kReturn = 0x3E, kDefineLocal2 = 0x41, kAdd2 = 0x47, kLess2 = 0x48,
+    kEquals2 = 0x49, kToNumber = 0x4A, kToString = 0x4B, kGetMember = 0x4E, kSetMember = 0x4F, kIncrement = 0x50,
+    kCallMethod = 0x52, kStrictEquals = 0x66, kConstantPool = 0x88, kPush = 0x96, kJump = 0x99, kDefineFunction = 0x9B,
+    kIf = 0x9D
 };
 
 struct Writer {
     const Consts& consts;
-    Function function;
-    uint32_t at;  // the body's guest address, for the alignment
+    Code where;
+    uint32_t at;  // the code's guest address, for the alignment
     std::vector<uint8_t> code;
     std::vector<Push> pushes;
     bool ok = true;
@@ -100,10 +104,10 @@ struct Writer {
         Align();
         Push p{code.size(), {}};
         for (const Value& v : values) {
-            int i = std::holds_alternative<int>(v) ? std::get<int>(v) : 0;
-            int e = std::holds_alternative<const char*>(v) ? consts.Find(std::get<const char*>(v))
-                    : i                                    ? consts.Find(7, uint32_t(i))
-                                                           : consts.Find(6, 0);
+            int e = -1;
+            if (auto s = std::get_if<const char*>(&v)) e = consts.Find(*s);
+            else if (auto i = std::get_if<int>(&v)) e = *i ? consts.Find(7, uint32_t(*i)) : consts.Find(6, 0);
+            else e = consts.Find(3, 0);
             ok = ok && e >= 0;
             p.entries.push_back(e);
         }
@@ -122,6 +126,10 @@ struct Writer {
         std::memcpy(&code[branch], &offset, 4);
     }
 };
+
+// The help bar, scrns/helpBar.apt: the main timeline's block (+0x1810) holds its functions, each one's DefineFunction
+// at def
+constexpr uint32_t kHelpBarBlock = 0x1810, kDisplayIcons = 0x1AB4, kShow = 0x1E74, kFindStartX = 0x23A8;
 
 // displayIcons(iconN_LST, iconLable_LST): the old one, its labels left as they are (its localization is off), the gap
 // after a label extern's _gap
@@ -159,7 +167,7 @@ void WriteDisplayIcons(Writer& w) {
     // i++; }
     P({"i", "i"}), w.Op(kGetVar), w.Op(kIncrement), w.Op(kSetVar);
     w.Land(w.Branch(kJump), loop);
-    w.Land(done, w.function.size);
+    w.Land(done, w.where.size);
 }
 
 // the new show(iconType, iconLable): the old one, its traces left out, and the key
@@ -227,88 +235,171 @@ void WriteFindStartX(Writer& w) {
     P({854, "strLengthInPixels"}), w.Op(kGetVar), w.Op(kSub), P({2}), w.Op(kDivide), w.Op(kReturn);
 }
 
-// a function's Push arrays: (capacity, offset in the .apt)
-void OldArrays(uint8_t* base, uint32_t apt, Function f, std::vector<std::pair<uint32_t, uint32_t>>& arrays) {
-    for (uint32_t a = apt + f.def + kBody; a < apt + f.def + kBody + f.size;) {
+// The dialogs' choices, scrns/dialogueWindow.apt ("Do you want to save your profile?" A Yes, B No): four of one clip
+// (a label, txtOption, and a button glyph, mcHotButtons, its frame the button type), each with a block of actions
+// (+0x182C the second, then the first, the third, the fourth) asking the dialog for its "type,label"
+// (getIconData(n)), as the help bar's
+constexpr uint32_t kChoices[] = {0x1CAC, 0x182C, 0x212C, 0x25AC};
+constexpr uint32_t kChoiceSize = 0x47C;  // to the End
+
+// a choice's actions: the old ones, its traces left out, and the key before the label, which on the keys takes the
+// glyph's place (extern's _dx its x)
+void WriteChoice(Writer& w, int n) {
+    auto P = [&](std::initializer_list<Value> v) { w.Values(v); };
+    std::vector<size_t> hidden;
+    // var i = _parent.getIconData(n);
+    P({"i", n, 1, "_parent"}), w.Op(kGetVar), P({"getIconData"}), w.Op(kCallMethod), w.Op(kDefineLocal);
+    // this.mcHotButtons._alpha = 0; this.txtOption.text = "";
+    P({"this"}), w.Op(kGetVar), P({"mcHotButtons"}), w.Op(kGetMember), P({"_alpha", 0}), w.Op(kSetMember);
+    P({"this"}), w.Op(kGetVar), P({"txtOption"}), w.Op(kGetMember), P({"text", ""}), w.Op(kSetMember);
+    // if (i == "") return;
+    P({"i"}), w.Op(kGetVar), P({""}), w.Op(kEquals2), hidden.push_back(w.Branch(kIf));
+    // var msgLST = i.split(","); var msg = msgLST[1];
+    P({"msgLST", ",", 1, "i"}), w.Op(kGetVar), P({"split"}), w.Op(kCallMethod), w.Op(kDefineLocal);
+    P({"msg", "msgLST"}), w.Op(kGetVar), P({1}), w.Op(kGetMember), w.Op(kDefineLocal);
+    // if (msg === undefined || msg === "" || msg === "-1" || msg === "#-1") return;
+    for (Value none : {Value(Undefined{}), Value(""), Value("-1"), Value("#-1")})
+        P({"msg"}), w.Op(kGetVar), P({none}), w.Op(kStrictEquals), hidden.push_back(w.Branch(kIf));
+    // if (msgLST[0] === "-1") return;
+    P({"msgLST"}), w.Op(kGetVar), P({0}), w.Op(kGetMember), P({"-1"}), w.Op(kStrictEquals);
+    hidden.push_back(w.Branch(kIf));
+    // i = extern["_" + msgLST[0]];
+    P({"i", "extern"}), w.Op(kGetVar), P({"_", "msgLST"}), w.Op(kGetVar), P({0}), w.Op(kGetMember), w.Op(kAdd2);
+    w.Op(kGetMember), w.Op(kSetVar);
+    // this.txtOption.text = i + msg; this.txtOption._x = Number(extern._dx);
+    P({"this"}), w.Op(kGetVar), P({"txtOption"}), w.Op(kGetMember), P({"text", "i"}), w.Op(kGetVar), P({"msg"});
+    w.Op(kGetVar), w.Op(kAdd2), w.Op(kSetMember);
+    P({"this"}), w.Op(kGetVar), P({"txtOption"}), w.Op(kGetMember), P({"_x", "extern"}), w.Op(kGetVar), P({"_dx"});
+    w.Op(kGetMember), w.Op(kToNumber), w.Op(kSetMember);
+    // this.mcHotButtons._alpha = (i === "") * 100;
+    P({"this"}), w.Op(kGetVar), P({"mcHotButtons"}), w.Op(kGetMember), P({"_alpha", "i"}), w.Op(kGetVar), P({""});
+    w.Op(kStrictEquals), P({100}), w.Op(kMultiply), w.Op(kSetMember);
+    // this.mcHotButtons.gotoAndStop(Number(msgLST[0]));
+    P({"msgLST"}), w.Op(kGetVar), P({0}), w.Op(kGetMember), w.Op(kToNumber), P({1, "this"}), w.Op(kGetVar);
+    P({"mcHotButtons"}), w.Op(kGetMember), P({"gotoAndStop"}), w.Op(kCallMethod), w.Op(kPop);
+    for (size_t b : hidden) w.Land(b, w.code.size());
+    w.Op(kEnd);
+}
+
+// a movie's code to write anew: the block that sets it off (the first the linker meets), the code (checked as it
+// ships, CRC-32 from the first's start to the last's end), the names it needs that the movie has not (written over
+// text no longer used, as long or longer)
+struct Rewrite {
+    const char* name;
+    std::vector<uint32_t> triggers;
+    uint32_t crc;
+    std::vector<std::pair<const char*, const char*>> renamed;
+    std::vector<std::pair<Code, std::function<void(Writer&)>>> code;
+};
+
+const std::vector<Rewrite>& Rewrites() {
+    static const std::vector<Rewrite> rewrites = [] {
+        std::vector<Rewrite> r;
+        r.push_back({"help bar",
+                     {kHelpBarBlock},
+                     0x8A149A46,
+                     {{"ICON COUNT = ", "platformIcon"},
+                      {"NEW ICON = ", "_visible"},
+                      {"What is my FRAME LABEL ? ", "extern"},
+                      {"input to the filter function = ", "_gap"},
+                      {"totalLenghtOfHBMessages", "_start"}},
+                     {{{kDisplayIcons + kBody, 0x254, false}, WriteDisplayIcons},
+                      {{kShow + kBody, 0x1C2, false}, WriteShow},
+                      {{kFindStartX + kBody, 0x132, false}, WriteFindStartX}}});
+        Rewrite choices{"dialog",
+                        {std::begin(kChoices), std::end(kChoices)},
+                        0xD522C799,
+                        {{"after split = ", "extern"}, {"One = ", "_"}, {"And Two = ", "_x"},
+                         {"GET and DSP Dialog MSG ", "_dx"}},
+                        {}};
+        for (int n = 1; n <= 4; n++)
+            choices.code.push_back({{kChoices[n - 1], kChoiceSize, true}, [n](Writer& w) { WriteChoice(w, n); }});
+        r.push_back(std::move(choices));
+        return r;
+    }();
+    return rewrites;
+}
+
+// some code's Push and ConstantPool arrays: (capacity, offset in the .apt)
+void OldArrays(uint8_t* base, uint32_t apt, Code c, std::vector<std::pair<uint32_t, uint32_t>>& arrays) {
+    for (uint32_t a = apt + c.start; a < apt + c.start + c.size;) {
         uint8_t op = base[a];
         if (op < 0x80) {
             a++;
             continue;
         }
         uint32_t args = (a + 4) & ~3u;
-        if (op == kPush) arrays.emplace_back(U32(base, args), U32(base, args + 4));
-        a = args + (op == kPush ? 8 : 4);
+        bool values = op == kPush || op == kConstantPool;
+        if (values) arrays.emplace_back(U32(base, args), U32(base, args + 4));
+        a = args + (values ? 8 : 4);
     }
 }
 
-// the help bar's main block about to be linked: its functions written anew, once (linked, they are no longer as they
-// ship)
+// a block of a movie about to be linked: its code written anew, once (linked, it is no longer as it ships)
 void Patch(uint8_t* base, uint32_t code, uint32_t apt, uint32_t consts_file) {
-    constexpr Function kFunctions[] = {kDisplayIcons, kShow, kFindStartX};
-    constexpr void (*kWrite[])(Writer&) = {WriteDisplayIcons, WriteShow, WriteFindStartX};
-    if (code != apt + kMainBlock || std::memcmp(base + apt, "Apt Data:6", 10) ||
-        Crc32(base + apt + kDisplayIcons.def, kFindStartX.def + kBody + kFindStartX.size - kDisplayIcons.def) !=
-            kFunctionsCrc)
+    if (std::memcmp(base + apt, "Apt Data:6", 10)) return;
+    for (const Rewrite& r : Rewrites()) {
+        if (std::find(r.triggers.begin(), r.triggers.end(), code - apt) == r.triggers.end()) continue;
+        uint32_t first = r.code.front().first.start, last = first;
+        for (auto& [c, write] : r.code) {
+            first = std::min(first, c.start - (c.block ? 0 : kBody));
+            last = std::max(last, c.start + c.size);
+        }
+        if (Crc32(base + apt + first, last - first) != r.crc) continue;
+        Consts consts{base, consts_file, U32(base, consts_file + 0x1C), U32(base, consts_file + 0x18)};
+        for (auto [from, to] : r.renamed)
+            if (consts.Find(from) < 0) {
+                LOGW("%s: no \"%s\" to rename, left as it is", r.name, from);
+                return;
+            }
+        for (auto [from, to] : r.renamed) {
+            int e = consts.Find(from);
+            std::strcpy(reinterpret_cast<char*>(base + consts_file + U32(base, consts.entries + 8 * e + 4)), to);
+        }
+        std::vector<Writer> writers;
+        std::vector<std::pair<uint32_t, uint32_t>> arrays;
+        for (auto& [c, write] : r.code) {
+            writers.push_back(Writer{consts, c, apt + c.start});
+            write(writers.back());
+            OldArrays(base, apt, c, arrays);
+            const Writer& w = writers.back();
+            if (!w.ok || w.code.size() > c.size) {
+                LOGW("%s: not rewritten, the code at +%X %zu bytes of %u", r.name, c.start, w.code.size(), c.size);
+                return;
+            }
+        }
+        // the arrays to the Pushes, the fullest Push first, each to the smallest array that holds it
+        std::vector<std::pair<Writer*, const Push*>> pushes;
+        for (Writer& w : writers)
+            for (const Push& p : w.pushes) pushes.emplace_back(&w, &p);
+        std::stable_sort(pushes.begin(), pushes.end(),
+                         [](auto& a, auto& b) { return a.second->entries.size() > b.second->entries.size(); });
+        std::sort(arrays.begin(), arrays.end());
+        std::vector<uint32_t> array_of(pushes.size());
+        for (size_t i = 0; i < pushes.size(); i++) {
+            auto fit = std::find_if(arrays.begin(), arrays.end(),
+                                    [&](auto& a) { return a.first >= pushes[i].second->entries.size(); });
+            if (fit == arrays.end()) {
+                LOGW("%s: not rewritten, too few Push arrays", r.name);
+                return;
+            }
+            array_of[i] = fit->second;
+            arrays.erase(fit);
+        }
+        for (Writer& w : writers) {
+            if (!w.where.block) w.code.resize(w.where.size, 0x02);
+            std::memcpy(base + w.at, w.code.data(), w.code.size());
+        }
+        for (size_t i = 0; i < pushes.size(); i++) {
+            auto [w, p] = pushes[i];
+            U32(base, w->at + uint32_t(p->at)) = uint32_t(p->entries.size());
+            U32(base, w->at + uint32_t(p->at) + 4) = array_of[i];
+            for (size_t k = 0; k < p->entries.size(); k++)
+                U32(base, apt + array_of[i] + 4 * uint32_t(k)) = p->entries[k];
+        }
+        LOGI("%s: rewritten for the keys (%zu Pushes)", r.name, pushes.size());
         return;
-    for (Function f : kFunctions)
-        if (base[apt + f.def] != kDefineFunction || U32(base, apt + f.def + 16) != f.size) return;
-    Consts consts{base, consts_file, U32(base, consts_file + 0x1C), U32(base, consts_file + 0x18)};
-    // the names the functions need that the help bar has not, in place of text no longer used, as long or longer
-    constexpr std::pair<const char*, const char*> kRenamed[] = {
-        {"ICON COUNT = ", "platformIcon"}, {"NEW ICON = ", "_visible"}, {"What is my FRAME LABEL ? ", "extern"},
-        {"input to the filter function = ", "_gap"}, {"totalLenghtOfHBMessages", "_start"}};
-    for (auto [from, to] : kRenamed)
-        if (consts.Find(from) < 0) {
-            LOGW("help bar: no \"%s\" to rename, left as it is", from);
-            return;
-        }
-    for (auto [from, to] : kRenamed) {
-        int e = consts.Find(from);
-        std::strcpy(reinterpret_cast<char*>(base + consts_file + U32(base, consts.entries + 8 * e + 4)), to);
     }
-    std::vector<Writer> writers;
-    std::vector<std::pair<uint32_t, uint32_t>> arrays;
-    for (size_t i = 0; i < std::size(kFunctions); i++) {
-        writers.push_back(Writer{consts, kFunctions[i], apt + kFunctions[i].def + kBody});
-        kWrite[i](writers.back());
-        OldArrays(base, apt, kFunctions[i], arrays);
-        const Writer& w = writers.back();
-        if (!w.ok || w.code.size() > w.function.size) {
-            LOGW("help bar: not rewritten, the function at +%X %zu bytes of %u", w.function.def, w.code.size(),
-                 w.function.size);
-            return;
-        }
-    }
-    // the arrays to the Pushes, the fullest Push first, each to the smallest array that holds it
-    std::vector<std::pair<Writer*, const Push*>> pushes;
-    for (Writer& w : writers)
-        for (const Push& p : w.pushes) pushes.emplace_back(&w, &p);
-    std::stable_sort(pushes.begin(), pushes.end(),
-                     [](auto& a, auto& b) { return a.second->entries.size() > b.second->entries.size(); });
-    std::sort(arrays.begin(), arrays.end());
-    std::vector<uint32_t> array_of(pushes.size());
-    for (size_t i = 0; i < pushes.size(); i++) {
-        auto fit = std::find_if(arrays.begin(), arrays.end(),
-                                [&](auto& a) { return a.first >= pushes[i].second->entries.size(); });
-        if (fit == arrays.end()) {
-            LOGW("help bar: not rewritten, too few Push arrays");
-            return;
-        }
-        array_of[i] = fit->second;
-        arrays.erase(fit);
-    }
-    for (Writer& w : writers) {
-        // the rest after its end, never run, a 1 byte action (the linker stops at an End, 0)
-        w.code.resize(w.function.size, 0x02);
-        std::memcpy(base + w.at, w.code.data(), w.function.size);
-    }
-    for (size_t i = 0; i < pushes.size(); i++) {
-        auto [w, p] = pushes[i];
-        U32(base, w->at + uint32_t(p->at)) = uint32_t(p->entries.size());
-        U32(base, w->at + uint32_t(p->at) + 4) = array_of[i];
-        for (size_t k = 0; k < p->entries.size(); k++) U32(base, apt + array_of[i] + 4 * uint32_t(k)) = p->entries[k];
-    }
-    LOGI("help bar: rewritten for the keys (%zu Pushes)", pushes.size());
 }
 
 // the key an icon's button is pressed with in the menus: A's is use's or reload's when it has none of its own
@@ -332,9 +423,10 @@ X86_FUNC(sub_00287830) {
     __imp__sub_00287830(ctx, base);
 }
 
-// extern's variables: the help bar's "_1" to "_4", the button type's key on the keys; its "_gap" after a label and
-// "_start", -2 times what is added to the bar's start: on a controller as the game has them (the gap 60, the start
-// 26), on the keys without the glyph's room (the glyph 32 wide, centred at the icon's left, the label at 18)
+// extern's variables: "_1" to "_4", the button type's key on the keys; the help bar's "_gap" after a label and
+// "_start", -2 times what is added to the bar's start, and the dialog choices' label's x, "_dx": on a controller as
+// the game has them (the gap 60, the start 26, the x -211.4), on the keys without the glyph's room (the glyph 32 wide,
+// centred at the icon's left, the label at 18; a choice's glyph at -230.15)
 X86_EXTERN_FUNC(__imp__sub_00170770);
 X86_FUNC(sub_00170770) {
     const char* name = reinterpret_cast<const char*>(base + U32(base, ctx.esp + 4));
@@ -344,6 +436,8 @@ X86_FUNC(sub_00170770) {
         value = keys ? "30" : "60";
     } else if (!std::strcmp(name, "_start")) {
         value = keys ? "8" : "-52";
+    } else if (!std::strcmp(name, "_dx")) {
+        value = keys ? "-244" : "-211.4";
     } else if (name[0] == '_' && name[1] >= '1' && name[1] <= '4' && !name[2]) {
         std::string key = keys ? MenuKey(name[1] - '0') : std::string();
         if (!key.empty()) value = std::string("$") + kMark + key + kMarkEnd;
