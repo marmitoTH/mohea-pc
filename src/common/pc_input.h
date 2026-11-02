@@ -74,6 +74,10 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
 // the game's thread, from the player control each frame it runs (game/actions.cpp): the player is in play, and looks
 // through a scope or not. The mouse wheel works only in play: zooming in a scope (up in, down out), else as bound
 void SetPlay(bool scoped);
+// the keys the menus take on their own (game/menus.cpp), as the menus' buttons: the move keys the d-pad's, crouch's X.
+// Play never sees them, so they move through a menu and only move in play
+constexpr uint32_t kMenuUp = 0x1, kMenuDown = 0x2, kMenuLeft = 0x4, kMenuRight = 0x8, kMenuX = 0x20;
+uint32_t MenuKeys();
 
 // the overlay (common/overlay.h) opened or closed, any thread: the window takes the mouse or lets it go
 void Refresh();

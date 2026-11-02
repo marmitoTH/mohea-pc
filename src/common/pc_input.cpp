@@ -173,6 +173,7 @@ std::atomic<bool> g_keyboard{false};
 // SetPlay: the player control ran lately (clock ticks until), and the player looks through a scope
 constexpr auto kPlayHold = std::chrono::milliseconds(150);
 std::atomic<int64_t> g_play_until{0};
+std::atomic<uint32_t> g_menu_keys{0};
 std::atomic<bool> g_scoped{false};
 
 // the wheel's notches are presses held for a moment, long enough for a poll at the game's frame rate to see them
@@ -669,6 +670,8 @@ void SetPlay(bool scoped) {
     g_play_until = Ticks(clock::now() + kPlayHold);
 }
 
+uint32_t MenuKeys() { return g_menu_keys.load(); }
+
 void Refresh() {
     if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kRefresh, 0, 0);
 }
@@ -740,6 +743,7 @@ void Pad(int port, input::Pad& pad) {
         return both || (reload && use) ? AOnly::Both : reload ? AOnly::Reload : use ? AOnly::Use : AOnly::Both;
     };
     if (!Active()) {
+        g_menu_keys = 0;
         g_a_only = a_only(from_pad.a, from_pad.reload, from_pad.use);
         return;
     }
@@ -780,15 +784,15 @@ void Pad(int port, input::Pad& pad) {
             if (!play)
                 for (int k : kDefaults[i]) press(i, k);
         }
-        // in the menus crouch's keys are X's too (the profiles' delete, the pause menu's map), X having none of its own
-        // by default
-        if (!play) held[kX] = held[kX] || held[kCrouch];
-        // and the move keys the d-pad's, so they move through the menus as the arrows do (in play they move alone)
-        if (!play) {
-            constexpr std::pair<Target, Target> kMenuMoves[] = {
-                {kMoveForward, kDpadUp}, {kMoveBack, kDpadDown}, {kMoveLeft, kDpadLeft}, {kMoveRight, kDpadRight}};
-            for (auto [move, dpad] : kMenuMoves) held[dpad] = held[dpad] || held[move];
-        }
+        // the menus' own keys (MenuKeys): the move keys as the d-pad, crouch's as X (the profiles' delete, the pause
+        // menu's map; X has none of its own by default)
+        constexpr std::pair<Target, uint32_t> kMenuKeys[] = {
+            {kMoveForward, kMenuUp}, {kMoveBack, kMenuDown}, {kMoveLeft, kMenuLeft}, {kMoveRight, kMenuRight},
+            {kCrouch, kMenuX}};
+        uint32_t menu_keys = 0;
+        for (auto [from, button] : kMenuKeys)
+            if (held[from]) menu_keys |= button;
+        g_menu_keys = menu_keys;
         // the zoom is the d-pad's up (in, narrowing the field of view) and down (out)
         if (in_scope) {
             held[kDpadUp] = held[kZoomIn];
