@@ -15,7 +15,9 @@
 // animation over when the wait has run out, and until the bullet it has: with no wait left (a fresh weapon, a reload)
 // a trigger a blank after the kick, before the fire event, started the animation over, every frame: kicks and the fire
 // animation, no bullets. Here, at 60, the player's trigger an odd number of blanks into a burst is let go by (not two
-// running, should the frames come 2 blanks apart), the next frame's taking its place, as at 30.
+// running, should the frames come 2 blanks apart), the next frame's taking its place, as at 30. And one less than 4
+// blanks after the kick, the soonest a shot follows another at 30 (two frames): the PPSh's animation is over a frame
+// after its kick, so the next frame's trigger fired again, every 2 frames at either rate, 1800 a minute at 60.
 //
 // And the MP40 asks its weapon for the bullet twice, at the kick and a blank on: at 30 frames a second both came in the
 // kick's frame, one bullet; at 60 a frame apart, two bullets a kick, twice the rate. Here, at 60, the player's bullet
@@ -40,9 +42,9 @@ std::unordered_map<uint32_t, Aim> g_aims;
 
 // the blank the player's last kick came at (the blank count, frame_rate.cpp's); a burst's shots come within kBurst.
 // The last trigger let go by, and the blank of the player's last bullet.
-constexpr uint32_t kBlanks = 0x38DC8C, kBurst = 16, kTrigger = 4;
+constexpr uint32_t kBlanks = 0x38DC8C, kBurst = 16, kTrigger = 4, kSoonest = 4;
 uint32_t g_kick_blank = 0;
-bool g_skipped = false;
+bool g_skipped = false;  // the last trigger let go by for its odd blank
 uint32_t g_shot_blank = 0;
 
 uint32_t Blanks(uint8_t* base) { return *reinterpret_cast<volatile uint32_t*>(base + kBlanks); }
@@ -107,15 +109,15 @@ X86_FUNC(sub_00189420) {
 }
 
 // the holder's event handler (stdcall (event, data), ecx the holder): the player's trigger, at 60, an odd number of
-// blanks into a burst, let go by
+// blanks into a burst, or sooner after the kick than at 30, let go by
 X86_EXTERN_FUNC(__imp__sub_000F5180);
 X86_FUNC(sub_000F5180) {
     uint32_t event = *reinterpret_cast<uint32_t*>(base + ctx.esp + 4);
     if (event == kTrigger && g_sixty_fps && Players(base, ctx.ecx)) {
         uint32_t since = Blanks(base) - g_kick_blank;
-        bool skip = !g_skipped && since <= kBurst && since % 2;
-        g_skipped = skip;
-        if (skip) {
+        bool odd = !g_skipped && since <= kBurst && since % 2;
+        g_skipped = odd;
+        if (odd || since < kSoonest) {
             ctx.esp += 12;  // ret 8
             return;
         }
