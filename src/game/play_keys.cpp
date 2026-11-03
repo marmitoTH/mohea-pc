@@ -86,8 +86,12 @@ void Weapon(X86Context& ctx, uint8_t* base, uint32_t player) {
 }  // namespace
 
 X86_EXTERN_FUNC(__imp__sub_00114950);
+// the player's character as the player control last ran (game/free_camera.cpp), 0 before it has
+uint32_t g_character = 0;
+
 X86_FUNC(sub_00114950) {
     uint32_t player = ctx.ecx;
+    g_character = player;
     __imp__sub_00114950(ctx, base);
     Stance(ctx, base, player);
     Weapon(ctx, base, player);

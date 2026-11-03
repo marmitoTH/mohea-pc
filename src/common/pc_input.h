@@ -96,6 +96,18 @@ int TakeWeapon();
 enum class AOnly { Both, Reload, Use };
 AOnly AButton();
 
+// The free camera (game/free_camera.cpp), the overlay's hack, off at each start: the player's input moves the camera
+// instead, and the game gets none but start and back. TakeFreeCamera, once a frame on the game's thread: the move,
+// -1 to 1 each (right, forward, up), the right stick's turn, -1 to 1 (right, up), the mouse's since the last call,
+// radians (right, up positive), and the speed's steps since the last call (up positive)
+extern bool g_free_camera;
+extern bool g_free_camera_drop;  // turned off, the player is put where the camera is
+struct FreeCamera {
+    float move[3] = {}, turn[2] = {}, yaw = 0, pitch = 0;
+    int speed = 0;
+};
+FreeCamera TakeFreeCamera();
+
 // direct look, once a frame from the game's look handler: the mouse's motion since the last call as the view's turn,
 // radians, right and up positive; 0 when the game window is not active. While the game calls it the mouse no longer
 // moves the right stick

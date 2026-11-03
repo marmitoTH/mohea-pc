@@ -37,6 +37,7 @@ The whole campaign is playable from start to finish, with every movie and cutsce
 All off by default, they leave the original game as it was.
 - **Drops** - Weapons and items dropped by fallen enemies can stay longer, or never disappear.
 - **Move while aiming** - Walk and strafe at half speed while aiming down the sights, instead of leaning in place.
+- **Free camera** - Fly the view anywhere in the level (WASD / left stick to move, mouse / right stick to look, Q / E or the triggers for down and up, the wheel or the d-pad for speed) while the player stands still; the level's detail streams and fades in around the camera. Turned off, the view snaps back to the player, or the player can be dropped where the camera is.
 - **Cheats** - Squad takes no hits, player takes no damage, unlimited ammo, no shell shock.
 
 ### Controls

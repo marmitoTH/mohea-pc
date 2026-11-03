@@ -234,6 +234,12 @@ void HacksTab() {
     Heading("Movement");
     // the left stick walks while aiming down the sights, at half speed, instead of leaning (game/strafe.cpp)
     if (ImGui::Checkbox("Move while aiming", &g_aim_move)) app::Save();
+    Heading("Camera");
+    // a camera the player flies while the game goes on (game/free_camera.cpp), off at each start
+    ImGui::Checkbox("Free camera", &pc_input::g_free_camera);
+    ImGui::Checkbox("Drop the player at the camera when it is turned off", &pc_input::g_free_camera_drop);
+    ImGui::TextDisabled("WASD / left stick move, mouse / right stick look, Q E / triggers down and up,\n"
+                        "wheel / d-pad up and down speed. Off: back to the player.");
     Heading("Cheats");
     if (ImGui::Checkbox("Squad takes no hits", &g_squad_immortal)) app::Save();
     if (ImGui::Checkbox("Player takes no damage", &g_player_invincible)) app::Save();

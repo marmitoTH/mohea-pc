@@ -676,7 +676,20 @@ void Refresh() {
     if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kRefresh, 0, 0);
 }
 
+namespace {
+void PadInput(int port, input::Pad& pad);
+void FreeCameraPad(const input::Pad& raw, input::Pad& pad);
+}  // namespace
+
 void Pad(int port, input::Pad& pad) {
+    input::Pad raw = pad;  // the controller as it is, for the free camera
+    PadInput(port, pad);
+    if (port == 0) FreeCameraPad(raw, pad);
+}
+
+namespace {
+
+void PadInput(int port, input::Pad& pad) {
     // a controller used: its buttons, or a stick well past its centre
     constexpr int kStickUsed = 16000;
     bool used = pad.connected && pad.buttons;
@@ -855,12 +868,84 @@ void Pad(int port, input::Pad& pad) {
     pad.ry = Axis(float(pad.ry) + Stick(g_invert_mouse_y ? rate_y : -rate_y));
 }
 
+// The free camera's input: the left stick, the move keys, the triggers and Q / E move it (right, forward, up), the
+// right stick turns it, the mouse turns it (TakeFreeCamera), the wheel and the d-pad's up and down step its speed. The
+// game gets none of it, only start and back, so the player stands while the camera flies
+std::atomic<float> g_fc_move[3], g_fc_turn[2];
+std::atomic<int> g_fc_speed{0};
+
+float StickValue(int16_t v) {
+    constexpr float kDeadZone = 0.2f;
+    float f = std::clamp(float(v) / 32767.0f, -1.0f, 1.0f);
+    return std::abs(f) < kDeadZone ? 0.0f : (f - std::copysign(kDeadZone, f)) / (1.0f - kDeadZone);
+}
+
+void FreeCameraPad(const input::Pad& raw, input::Pad& pad) {
+    bool on = g_free_camera && !overlay::g_open.load() && Ticks(clock::now()) < g_play_until.load();
+    float move[3] = {}, turn[2] = {};
+    int steps = 0;
+    static bool up_held = false, down_held = false;
+    if (on) {
+        if (raw.connected) {
+            move[0] = StickValue(raw.lx), move[1] = StickValue(raw.ly);
+            move[2] = (float(raw.analog[kRightTrigger]) - float(raw.analog[kLeftTrigger])) / 255.0f;
+            turn[0] = StickValue(raw.rx), turn[1] = StickValue(raw.ry);
+        }
+        bool up = raw.connected && (raw.buttons & 0x1), down = raw.connected && (raw.buttons & 0x2);
+        if (Active()) {
+            clock::time_point now = clock::now();
+            std::lock_guard lock(g_lock);
+            auto any = [&](Target t) {
+                for (int k : g_keys[t])
+                    if (Held(k, now)) return true;
+                return false;
+            };
+            move[0] += float(any(kMoveRight)) - float(any(kMoveLeft));
+            move[1] += float(any(kMoveForward)) - float(any(kMoveBack));
+            move[2] += float(Held('E', now)) - float(Held('Q', now));
+            up = up || Held(kWheelUp, now);
+            down = down || Held(kWheelDown, now);
+        }
+        steps = int(up && !up_held) - int(down && !down_held);
+        up_held = up, down_held = down;
+        // start and back still pause and show the map
+        pad.buttons &= 0x30;
+        pad.lx = pad.ly = pad.rx = pad.ry = 0;
+        std::fill(std::begin(pad.analog), std::end(pad.analog), uint8_t(0));
+        g_a_only = AOnly::Both;
+    }
+    for (int i = 0; i < 3; i++) g_fc_move[i] = std::clamp(move[i], -1.0f, 1.0f);
+    for (int i = 0; i < 2; i++) g_fc_turn[i] = turn[i];
+    g_fc_speed += steps;
+}
+
+}  // namespace
+
+bool g_free_camera = false;
+bool g_free_camera_drop = false;
+
+FreeCamera TakeFreeCamera() {
+    FreeCamera f;
+    for (int i = 0; i < 3; i++) f.move[i] = g_fc_move[i].load();
+    for (int i = 0; i < 2; i++) f.turn[i] = g_fc_turn[i].load();
+    f.speed = g_fc_speed.exchange(0);
+    int x = g_look_x.exchange(0), y = g_look_y.exchange(0);
+    if (Captured()) {
+        float k = kRadiansPerCount * float(g_mouse_sensitivity) / 100.0f;
+        f.yaw = float(x) * k;
+        f.pitch = float(g_invert_mouse_y ? y : -y) * k;
+    }
+    return f;
+}
+
 AOnly AButton() {
     return g_a_only.load();
 }
 
 void TakeLook(float& yaw, float& pitch) {
     g_direct_until = Ticks(clock::now() + kDirectHold);
+    // the free camera takes the mouse
+    if (g_free_camera) return;
     int x = g_look_x.exchange(0), y = g_look_y.exchange(0);
     if (!Captured()) return;
     float k = kRadiansPerCount * float(g_mouse_sensitivity) / 100.0f;
