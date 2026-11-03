@@ -10,6 +10,7 @@
 
 #include "common/marker.h"
 #include "common/options.h"
+#include "common/pc_input.h"
 #include "common/smaa.h"
 #include "common/ssao.h"
 #include "gpu/backend.h"
@@ -118,11 +119,14 @@ public:
 
     // the HUD hidden (game/hud.cpp skips its draw): a 3D frame without the HUD's first draw gets the antialiasing and
     // the sharpening on its way to the screen, when the game would have drawn the HUD (not the pause menu's frames,
-    // nor a cutscene's)
+    // nor a cutscene's) and the player is in play: the front end's menus, drawn on the back buffer, have the game's
+    // HUD byte still set from the pause menu it was left by
     void Presenting(gpu::Context& ctx, gpu::Target& t) override {
         uint32_t w = 0, h = 0;
         ctx.GuestSize(w, h);
-        if (!g_hide_hud || !HudWanted() || ctx.Presents() != frame_ || done_ || scene_ < kSceneDraws) return;
+        if (!g_hide_hud || !HudWanted() || !pc_input::InPlay() || ctx.Presents() != frame_ || done_ ||
+            scene_ < kSceneDraws)
+            return;
         if (t.depth || t.gw != w || t.gh != h) return;
         done_ = true;
         if (Finish(ctx, t)) ctx.Unbind();
