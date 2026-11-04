@@ -1,0 +1,34 @@
+A hold on the sound: audio::g_hold set, the mixer puts out silence and leaves every voice and stream where it is,
+and they go on from there when it is let go. A title that freezes its game holds its sound with it.
+
+diff --git a/runtime/audio/audio.h b/runtime/audio/audio.h
+--- a/runtime/audio/audio.h
++++ b/runtime/audio/audio.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <atomic>
+ #include <cstdint>
+ #include <functional>
+ 
+@@ -9,4 +10,7 @@
+ // the platform output pulls interleaved stereo float frames from render
+ void StartOutput(std::function<void(float* out, uint32_t frames)> render);
+ 
++// held, the output is silent and every sound and stream stays where it is until let go (a title's game frozen)
++inline std::atomic<bool> g_hold{false};
++
+ }  // namespace audio
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -608,6 +608,10 @@
+ }
+ 
+ void Render(float* out, uint32_t frames) {
++    if (audio::g_hold.load()) {
++        std::fill(out, out + size_t(frames) * 2, 0.0f);
++        return;
++    }
+     static std::vector<float> bins;  // the output thread alone renders
+     bins.assign(size_t(frames) * kBins, 0.0f);
+     std::lock_guard<std::recursive_mutex> lock(g_lock);

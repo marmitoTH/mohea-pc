@@ -1,8 +1,9 @@
 #pragma once
 // F11 and Alt+Enter switch between a window and the full screen: the full screen mode last used (borderless, or
 // fullscreen when the settings file asks for it), kept in the settings file. F9 switches the game between 30 and 60
-// frames a second (sixty_fps), F8 the sharpening (common/sharpen.h), F7 the ambient occlusion (common/ssao.h),
-// each shown in the corner for a moment.
+// frames a second (sixty_fps), F8 the sharpening (common/sharpen.h), F7 the ambient occlusion (common/ssao.h), F6
+// freezes the game (game/frame_rate.cpp), each shown in the corner for a moment. F12 saves the next frame as shown,
+// without the overlay, as a PNG under screenshots/ beside the exe.
 #include <cstdint>
 
 namespace display {

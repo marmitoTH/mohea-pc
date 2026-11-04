@@ -1,0 +1,175 @@
+A screenshot: gpu::g_screenshot set, the next frame as shown (the picture's part of the back buffer, drawn but
+before the overlay) is read back once the GPU is done and written as a PNG, on a thread of its own, under
+screenshots/ beside the exe, named by the local time.
+
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -73,5 +73,7 @@
+ 
+ // F3: save the next frame, every draw and target, under diag::CaptureDir
+ inline std::atomic<bool> g_capture{false};
++// a screenshot of the next frame as shown, without the overlay: a PNG under screenshots/ beside the exe
++inline std::atomic<bool> g_screenshot{false};
+ 
+ }  // namespace gpu
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -27,6 +27,8 @@
+ #include <thread>
+ #include <unordered_map>
+ #include <unordered_set>
++
++#include <wincodec.h>
+ 
+ #include <imgui.h>
+ #include <backends/imgui_impl_dx12.h>
+@@ -640,7 +642,9 @@
+     void UploadGammaRamp();
+     void DrawFrame(Target* t, uint32_t bi);
+     void BlitFrame(Target& t);
++    void RecordShot(uint32_t bi, D3D12_RESOURCE_STATES& bs);
+     void RenderUi();
++    void SaveShot();
+     void ReleaseOldTextures();
+     void ResetFrame();
+     void CountFps();
+@@ -789,6 +793,12 @@
+     uint32_t guest_h_ = 480;
+     uint32_t bb_w_ = 0;
+     uint32_t bb_h_ = 0;
++    // the screenshot: the picture's part of the back buffer (BlitFrame), and its copy until Present writes it out
++    D3D12_BOX shot_box_{};
++    ComPtr<ID3D12Resource> shot_rb_;
++    uint64_t shot_rb_bytes_ = 0;
++    uint32_t shot_w_ = 0, shot_h_ = 0, shot_pitch_ = 0;
++    bool shot_pending_ = false;
+     float scale_ = 1.0f;
+     // surfaces locked without a wait: copies in flight, the newest finished one goes to guest memory
+     struct Late {
+@@ -3426,6 +3436,8 @@
+     float uv[4] = {0, 0, 1, 1};
+     D3D12_VIEWPORT vp{(w - vw) / 2, (h - vh) / 2, vw, vh, 0, 1};
+     D3D12_RECT scissor{0, 0, LONG(bb_w_), LONG(bb_h_)};
++    shot_box_ = {UINT(std::lround(vp.TopLeftX)), UINT(std::lround(vp.TopLeftY)), 0,
++                 UINT(std::lround(vp.TopLeftX + vw)), UINT(std::lround(vp.TopLeftY + vh)), 1};
+     cl_->RSSetViewports(1, &vp);
+     cl_->RSSetScissorRects(1, &scissor);
+     binds_ = {};
+@@ -3457,8 +3469,107 @@
+     cl_->OMSetRenderTargets(1, &rh, FALSE, nullptr);
+     bound_rt_ = bound_ds_ = nullptr;
+     if (t) BlitFrame(*t);
++    if (t && g_screenshot.exchange(false)) {
++        RecordShot(bi, bs);
++        cl_->OMSetRenderTargets(1, &rh, FALSE, nullptr);
++    }
+     RenderUi();
+     Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_PRESENT);
++}
++
++// the picture just drawn to the back buffer, before the overlay, into a readback buffer for SaveShot
++void D3D12Backend::RecordShot(uint32_t bi, D3D12_RESOURCE_STATES& bs) {
++    D3D12_BOX box = shot_box_;
++    box.right = std::min<UINT>(box.right, bb_w_);
++    box.bottom = std::min<UINT>(box.bottom, bb_h_);
++    if (box.right <= box.left || box.bottom <= box.top) return;
++    uint32_t w = box.right - box.left, h = box.bottom - box.top;
++    D3D12_RESOURCE_DESC rd = Texture2DDesc(DXGI_FORMAT_B8G8R8A8_UNORM, w, h);
++    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp;
++    UINT rows;
++    UINT64 row_size;
++    UINT64 bytes;
++    dev_->GetCopyableFootprints(&rd, 0, 1, 0, &fp, &rows, &row_size, &bytes);
++    if (!shot_rb_ || shot_rb_bytes_ < bytes) {
++        shot_rb_.Reset();
++        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_READBACK};
++        D3D12_RESOURCE_DESC bd = BufferDesc(bytes);
++        if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST,
++                                                 nullptr, IID_PPV_ARGS(&shot_rb_)))) {
++            LOGE("screenshot: no readback buffer");
++            return;
++        }
++        shot_rb_bytes_ = bytes;
++    }
++    Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_COPY_SOURCE);
++    D3D12_TEXTURE_COPY_LOCATION dl{shot_rb_.Get(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
++    dl.PlacedFootprint = fp;
++    D3D12_TEXTURE_COPY_LOCATION sl{bb_[bi].Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
++    cl_->CopyTextureRegion(&dl, 0, 0, 0, &sl, &box);
++    Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_RENDER_TARGET);
++    shot_w_ = w;
++    shot_h_ = h;
++    shot_pitch_ = fp.Footprint.RowPitch;
++    shot_pending_ = true;
++}
++
++// the screenshot's pixels once the GPU has copied them, written as a PNG on a thread of its own
++void D3D12Backend::SaveShot() {
++    shot_pending_ = false;
++    WaitFence(fence_value_);
++    std::vector<uint8_t> px(size_t(shot_w_) * shot_h_ * 4);
++    uint8_t* p = nullptr;
++    if (FAILED(shot_rb_->Map(0, nullptr, reinterpret_cast<void**>(&p)))) return;
++    for (uint32_t y = 0; y < shot_h_; y++)
++        std::memcpy(&px[size_t(y) * shot_w_ * 4], p + size_t(y) * shot_pitch_, size_t(shot_w_) * 4);
++    D3D12_RANGE none{0, 0};
++    shot_rb_->Unmap(0, &none);
++    SYSTEMTIME tm;
++    GetLocalTime(&tm);
++    char name[64];
++    snprintf(name, sizeof(name), "%04u-%02u-%02u_%02u-%02u-%02u.%03u.png", tm.wYear, tm.wMonth, tm.wDay, tm.wHour,
++             tm.wMinute, tm.wSecond, tm.wMilliseconds);
++    std::error_code ec;
++    std::filesystem::path dir = app::ExeDir() / "screenshots";
++    std::filesystem::create_directories(dir, ec);
++    std::filesystem::path path = dir / name;
++    uint32_t w = shot_w_, h = shot_h_;
++    std::thread([path, w, h, px = std::move(px)] {
++        HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
++        {
++            ComPtr<IWICImagingFactory> wic;
++            ComPtr<IWICStream> file;
++            ComPtr<IWICBitmapEncoder> encoder;
++            ComPtr<IWICBitmapFrameEncode> frame;
++            WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
++            HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
++            if (SUCCEEDED(hr)) hr = wic->CreateStream(&file);
++            if (SUCCEEDED(hr)) hr = file->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
++            if (SUCCEEDED(hr)) hr = wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
++            if (SUCCEEDED(hr)) hr = encoder->Initialize(file.Get(), WICBitmapEncoderNoCache);
++            if (SUCCEEDED(hr)) hr = encoder->CreateNewFrame(&frame, nullptr);
++            if (SUCCEEDED(hr)) hr = frame->Initialize(nullptr);
++            if (SUCCEEDED(hr)) hr = frame->SetSize(w, h);
++            // the back buffer's alpha means nothing: opaque, 24 bits
++            WICPixelFormatGUID want = GUID_WICPixelFormat24bppBGR;
++            if (SUCCEEDED(hr)) hr = frame->SetPixelFormat(&want);
++            ComPtr<IWICBitmap> bitmap;
++            ComPtr<IWICBitmapSource> bgr;
++            if (SUCCEEDED(hr))
++                hr = wic->CreateBitmapFromMemory(w, h, format, w * 4, UINT(px.size()),
++                                                 const_cast<BYTE*>(px.data()), &bitmap);
++            if (SUCCEEDED(hr)) hr = WICConvertBitmapSource(want, bitmap.Get(), &bgr);
++            if (SUCCEEDED(hr)) hr = frame->WriteSource(bgr.Get(), nullptr);
++            if (SUCCEEDED(hr)) hr = frame->Commit();
++            if (SUCCEEDED(hr)) hr = encoder->Commit();
++            if (SUCCEEDED(hr)) {
++                LOGR("screenshot: %s (%ux%u)", path.filename().string().c_str(), w, h);
++            } else {
++                LOGE("screenshot: %s not written (0x%08lx)", path.string().c_str(), static_cast<unsigned long>(hr));
++            }
++        }
++        if (SUCCEEDED(co)) CoUninitialize();
++    }).detach();
+ }
+ 
+ void D3D12Backend::ReleaseOldTextures() {
+@@ -3590,6 +3701,7 @@
+     uint32_t bi = swap_->GetCurrentBackBufferIndex();
+     DrawFrame(t, bi);
+     Submit(false);
++    if (shot_pending_) SaveShot();
+     present_fence_[presents_ % (kFrames + 1)].store(fence_value_);
+     DeliverReports();
+     bool vsync = app::Get().vsync;

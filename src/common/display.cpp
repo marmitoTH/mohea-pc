@@ -20,6 +20,7 @@
 #include "common/sharpen.h"
 #include "common/ssao.h"
 #include "core/log.h"
+#include "gpu/backend.h"
 
 namespace display {
 
@@ -47,7 +48,7 @@ void Toggle() {
     app::ApplyDisplay();
 }
 
-// a notice in the corner for a moment after F9, F8 or F7: what it switched to
+// a notice in the corner for a moment after F9, F8, F7, F6 or F12: what it did
 using clock = std::chrono::steady_clock;
 clock::time_point g_notice_until{};
 const char* g_notice = "";
@@ -63,6 +64,13 @@ void ToggleFrameRate() {
     Notice(g_sixty_fps ? "60 FPS" : "30 FPS");
     LOGR("frame rate: %d in game", g_sixty_fps ? 60 : 30);
     app::Save();
+}
+
+// F6: the game's time stopped or going again (game/frame_rate.cpp), for comparison shots
+void ToggleFreeze() {
+    g_freeze = !g_freeze;
+    Notice(g_freeze ? "Frozen" : "Unfrozen");
+    LOGR("freeze: %s", g_freeze ? "on" : "off");
 }
 
 // F8: the sharpening of the 3D picture (common/sharpen.h)
@@ -112,6 +120,20 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
             }
             if (wp == VK_F7) {
                 if (first) ToggleSsao();
+                *result = 0;
+                return true;
+            }
+            if (wp == VK_F6) {
+                if (first) ToggleFreeze();
+                *result = 0;
+                return true;
+            }
+            // F12: the next frame as shown, without the overlay, under screenshots/ (Print Screen is left to Windows)
+            if (wp == VK_F12) {
+                if (first) {
+                    gpu::g_screenshot = true;
+                    Notice("Screenshot saved");
+                }
                 *result = 0;
                 return true;
             }

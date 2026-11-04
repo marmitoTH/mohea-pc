@@ -240,6 +240,9 @@ void HacksTab() {
     ImGui::Checkbox("Drop the player at the camera when it is turned off", &pc_input::g_free_camera_drop);
     ImGui::TextDisabled("WASD / left stick move, mouse / right stick look, Q E / triggers down and up,\n"
                         "wheel / d-pad up and down speed. Off: back to the player.");
+    // the game's time stopped, its picture still drawn (game/frame_rate.cpp), off at each start
+    ImGui::Checkbox("Freeze the game (F6)", &g_freeze);
+    ImGui::TextDisabled("F12 saves a screenshot, without this overlay, to the screenshots folder.");
     Heading("Cheats");
     if (ImGui::Checkbox("Squad takes no hits", &g_squad_immortal)) app::Save();
     if (ImGui::Checkbox("Player takes no damage", &g_player_invincible)) app::Save();

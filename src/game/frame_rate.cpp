@@ -4,14 +4,23 @@
 // its movement, turning and the rest by. A level's start (sub_0007FC50) sets that wait to 2 blanks, 30 frames a
 // second; the menus do not wait. With the option the wait is one blank, as the menus run; without it, back to the
 // level's 2 (F9 switches it while playing).
+//
+// Frozen (g_freeze), the frame's time step is 0 blanks: the world, its animations and its scripts stand still, and
+// the game still draws each frame, so the free camera flies about the moment and a graphics setting changed shows.
+// The player control, which marks each frame as play (pc_input::SetPlay), stands still too: frozen in play, play is
+// kept here, so the free camera's input and the in-play effects go on. The sound and the music are held where they
+// are (audio::g_hold) until it goes on.
 #include <chrono>
 #include <cmath>
 #include <thread>
 
 #include "common/options.h"
+#include "audio/audio.h"
+#include "common/pc_input.h"
 #include "xdk/hle.h"
 
 bool g_sixty_fps = true;
+bool g_freeze = false;
 
 X86_EXTERN_FUNC(__imp__sub_000137C0);
 X86_FUNC(sub_000137C0) {
@@ -27,6 +36,13 @@ X86_FUNC(sub_000137C0) {
         set = false;
     }
     __imp__sub_000137C0(ctx, base);
+    static bool frozen = false, in_play = false;
+    if (g_freeze && !frozen) in_play = pc_input::InPlay();
+    frozen = g_freeze;
+    audio::g_hold = g_freeze;
+    if (!g_freeze) return;
+    if (in_play) pc_input::KeepPlay();
+    ctx.eax = 0;
 }
 
 // The wait itself (0x137E0) reads the blank count until enough blanks have passed, with nothing between the reads:

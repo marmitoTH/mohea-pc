@@ -670,6 +670,8 @@ void SetPlay(bool scoped) {
     g_play_until = Ticks(clock::now() + kPlayHold);
 }
 
+void KeepPlay() { g_play_until = Ticks(clock::now() + kPlayHold); }
+
 uint32_t MenuKeys() { return g_menu_keys.load(); }
 
 void Refresh() {
