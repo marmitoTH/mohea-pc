@@ -1,5 +1,7 @@
 # Medal of Honor: European Assault - XBE Recomp
 
+<image src="./screenshots/bulge_german_tank.png"/>
+
 An unofficial native PC port of the original Xbox version of Medal of Honor: European Assault (USA, title ID 4541005E).
 
 This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) tool.
@@ -15,6 +17,13 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - Press **F1** (or both sticks, **L3 + R3**, on a controller) for the settings overlay. Every setting is also kept in `mohea.toml` beside the exe.
 
 ## Features
+
+<image src="./screenshots/africa_allies.png"/>
+
+| Original | Enhanced |
+| --- | --- |
+| <image src="./screenshots/original-1.png"/> | <image src="./screenshots/enhanced-1.png"/> |
+| <image src="./screenshots/original-2.png"/> | <image src="./screenshots/enhanced-2.png"/> |
 
 The whole campaign is playable from start to finish, with every movie and cutscene.
 
@@ -38,6 +47,7 @@ All off by default, they leave the original game as it was.
 - **Drops** - Weapons and items dropped by fallen enemies can stay longer, or never disappear.
 - **Move while aiming** - Walk and strafe at half speed while aiming down the sights, instead of leaning in place.
 - **Free camera** - Fly the view anywhere in the level (WASD / left stick to move, mouse / right stick to look, Q / E or the triggers for down and up, the wheel or the d-pad for speed) while the player stands still; the level's detail streams and fades in around the camera. Turned off, the view snaps back to the player, or the player can be dropped where the camera is.
+- **Freeze** - Stop the game's time, sound and music included, while it is still drawn (**F6**, or the overlay's hacks): fly the free camera about the moment, or change a setting and see it on the same frame.
 - **Cheats** - Squad takes no hits, player takes no damage, unlimited ammo, no shell shock.
 
 ### Controls
@@ -47,11 +57,14 @@ All off by default, they leave the original game as it was.
 
 ### Miscellaneous
 - **Saves** - Profiles and saved games are kept beside the exe, as on the console's hard drive.
+- **Screenshots** - **F12** saves the picture as shown, without the overlay, as a PNG in the `screenshots` folder beside the exe.
 - **Boot Splash** - Place a `splash.png` (or `.bmp`) beside the exe to display a splash screen at launch.
 
 ## Known Issues
 
-- A rare crash has been seen with many soldiers about at once (the game runs out of sound buffers). See [CRASHES.md](CRASHES.md).
+<image src="./screenshots/bulge_fallen_allies.png"/>
+
+- ~~A rare crash has been seen with many soldiers about at once (the game runs out of sound buffers).~~ (fixed) See [CRASHES.md](CRASHES.md).
 
 ## System Requirements
 
