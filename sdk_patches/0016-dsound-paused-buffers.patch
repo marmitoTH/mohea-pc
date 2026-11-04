@@ -1,0 +1,34 @@
+A paused buffer is no longer lost: GetStatus reports DSBSTATUS_PAUSED, and Stop (and StopEx) ends a pause. A
+game that resumes a buffer it finds paused, or stops a paused one and plays it again for another sound, no longer gets
+a buffer that reports playing forever and is never mixed.
+
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -977,13 +977,14 @@
+     v.sync = a[3] & 4;
+     return 0;
+ }
++// a stopped buffer is no longer paused: the game stops a paused one and plays it again for another sound
+ BUFFER(Stop, 1) {
+-    v.playing = false;
++    v.playing = v.paused = false;
+     return 0;
+ }
+ // (this, time low, time high, flags): stops now, the release envelope is not reproduced
+ BUFFER(StopEx, 4) {
+-    v.playing = false;
++    v.playing = v.paused = false;
+     return 0;
+ }
+ // (this, flags): 0 resumes, 1 pauses, 2 holds until IDirectSound_SynchPlayback
+@@ -1011,7 +1012,8 @@
+     return 0;
+ }
+ BUFFER(GetStatus, 2) {
+-    W32(a[1], (v.playing ? 1u : 0u) | (v.playing && v.looping ? 4u : 0u));  // DSBSTATUS_PLAYING, DSBSTATUS_LOOPING
++    // DSBSTATUS_PLAYING, DSBSTATUS_PAUSED, DSBSTATUS_LOOPING
++    W32(a[1], (v.playing ? 1u : 0u) | (v.paused ? 2u : 0u) | (v.playing && v.looping ? 4u : 0u));
+     return 0;
+ }
+ BUFFER(GetCurrentPosition, 3) {

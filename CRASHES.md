@@ -37,8 +37,34 @@ Tools in `src/game/` for following a problem at run time:
 
 ### 2026-10-29: out of sound buffers (mission 1_21)
 
-**Status:** open. Seen twice, both times with more soldiers in the world than the game keeps: likely each soldier
-holds sound buffers until it is taken away.
+**Status:** fixed by SDK patch `0016-dsound-paused-buffers`, confirmed in play: on 2026-11-04 (log `mohea_265.log`,
+820 s of heavy fire and many restarts in the busiest level) paused voices came and went (0, up to 21, back to 0), the
+larger pool never fell under 25 free and the smaller stayed at 28, with no silent sounds and no crash. Seen three
+times before the fix, the first two with more soldiers in the world than the game keeps, the third in plain play.
+
+- **Cause (2026-11-04):** buffers paused at pitch 0 leaked. In a dev build with the pools and the SDK's voices logged
+  every 5 s (log `mohea_264.log`, crash at 1236 s), voices the SDK held paused went from 0 to 29 at about 700 s, 81 at
+  about 790 s and 89 at about 1180 s, never fewer; the smaller pool fell from 28 free to 3 and stayed there. The chain:
+  1. `sub_00196DDB` (a voice's pitch) pauses its buffers (`IDirectSoundBuffer_Pause(1)`, thunk `0x2ECCE3`) when the
+     pitch (`+0x8E`, `sub_001973CE`) is 0 and clears their running flag (`+0x1C` in the buffer table at
+     `[0x5239B0]`), and resumes them when the pitch comes back.
+  2. Freeing a voice, `sub_001969C8` resumes a buffer only when `GetStatus` reports `DSBSTATUS_PAUSED` (0x02), then
+     stops it and puts it on the free list. The SDK never reported 0x02, and its `Stop` left the pause in place.
+  3. The next sound to take that buffer played it: reported playing, but skipped by the mixer as paused, it never
+     reached its end. The sweep (`sub_0019729F`, each audio update) frees only buffers not playing, so the buffer was
+     never given back. Every voice once paused at pitch 0 cost a buffer for the rest of the level.
+
+  The fix: `GetStatus` reports 0x02 for a paused buffer, and `Stop`/`StopEx` end a pause.
+
+- **Third sighting (2026-11-03):** 557 s into a **release** build session, the player's own log, no cheats, no extra
+  soldiers (`squad_immortal`, `player_invincible`, `unlimited_ammo` all off). The same fault (an exception address
+  ending `...34E1`, `ecx` `00523984`) and call chain (`0x19F479`, `0x19AF88`, `0x19B0A7`). The player heard some of
+  their own gunshots go silent before the crash: the pools were empty for a while before one sound asked with both
+  empty. That points to theory 1, a slow leak, over a burst.
+- **Where buffers go back:** `sub_001969C8` (a voice's index) gives each of the voice's buffers back: its status
+  (`IDirectSoundBuffer_GetStatus`), resumed if paused (bit 2), stopped, taken off the in-use list (`0x523978` + format
+  * 12) and put on the free list (`0x523990` + format * 12, `sub_0019B702`). Its callers: `sub_001960FF` (a voice
+  freed, from 11 places in the audio code) and `sub_0019729F` (the level's end).
 
 - **Second sighting (2026-10-30):** 267 s into a dev build session (log `mohea_152.log`, dump
   `MOHEA.2026.10.30_11.35.55.dmp`), the same fault (`MOHEA.dll+0x5134E1` in `sub_0019624E`, `ecx` `00523984`), with an
