@@ -6,6 +6,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <windowsx.h>
 
 #include "common/pc_input.h"
 
@@ -263,17 +264,57 @@ bool Active() {
     return hwnd && GetForegroundWindow() == hwnd && !IsIconic(hwnd);
 }
 
-// in game the cursor is hidden and held at the window's centre, so the mouse only turns the view and clicks stay in
-// the game; another window taking the focus lets it go. Windowed, Esc lets it go too (the window can be resized) until
-// a click in the window, which presses nothing: the mouse's buttons are not read until they are all up again. Window
-// thread only: ShowCursor counts per thread
+// in play the cursor is hidden and held at the window's centre, so the mouse only turns the view and clicks stay in
+// the game; another window taking the focus lets it go, and so does leaving play (MenuPointer). Windowed, Esc lets it
+// go too (the window can be resized) until a click in the window. Once held again the mouse's buttons are not read
+// until they are all up, so the click that held it (or that started the level) presses nothing. Window thread only:
+// ShowCursor counts per thread
 bool g_captured = false;
 std::atomic<bool> g_released{false}, g_swallow{false};
 
 bool Windowed() { return app::Get().display_mode == app::DisplayMode::Windowed; }
 
-// the mouse turns the view and its buttons press: not while it is let go, nor while the overlay is open
-bool Captured() { return Active() && !g_released.load() && !overlay::g_open.load(); }
+// the mouse turns the view and its buttons press: in play, not while it is let go, nor while the overlay is open
+bool Captured() { return Active() && !g_released.load() && !overlay::g_open.load() && InPlay(); }
+
+// Out of play the mouse is the menus' pointer (MenuPointer): the cursor shown while it moves, hidden once it has been
+// still for kPointerHide (the keys or a controller working the menus); its place on the stage, as the picture shows
+// it (16:9 or 4:3 in the middle of the window, gpu/d3d12.cpp's BlitFrame), and when it last moved, clicked and moved
+// with the left button held from a click (a drag: the window keeps the mouse till it is let go) for the game to take
+// (clock ticks, 0 taken). A click the window's own activation brought presses nothing, one with the cursor hidden
+// shows it and clicks where it is; the right button holds B down at least kPointerB. A timer keeps the cursor as the
+// mode it is in
+constexpr auto kPointerHide = std::chrono::seconds(3);
+constexpr auto kPointerEvent = std::chrono::milliseconds(250);  // the game takes moves and clicks newer than this
+constexpr auto kPointerB = std::chrono::milliseconds(100);
+constexpr auto kActivationClick = std::chrono::milliseconds(250);
+// The movies' stage is 854 x 480, and the game's 640 x 480 picture shows its middle: x 107 to 747, all of y (the
+// controls' bounds, getBounds(_root), against where they are drawn)
+constexpr float kStageLeft = 107.0f, kStageShown = 640.0f, kStageHeight = 480.0f;
+constexpr UINT_PTR kPointerTimer = 0x4D45;
+constexpr UINT kPointerTimerMs = 100;
+std::atomic<float> g_stage_x{-1000.0f}, g_stage_y{-1000.0f};
+std::atomic<int64_t> g_pointer_seen{0}, g_pointer_moved{0}, g_pointer_clicked{0}, g_pointer_dragged{0};
+std::atomic<int64_t> g_pointer_b{0}, g_activated{0};
+std::atomic<int64_t> g_pointer_start{0};  // a click while a movie plays: start held from then a moment (kPointerB)
+std::atomic<bool> g_movie{false};
+bool g_pointing = false;  // window thread: as of the last look, and the cursor's place in the client area then
+POINT g_pointer_at{};
+bool g_dragging = false;  // window thread: the left button held from a click
+
+// the drag over, the mouse given back
+void EndDrag() {
+    if (!g_dragging) return;
+    g_dragging = false;
+    ReleaseCapture();
+}
+
+// the menus' pointer: the window active, the overlay closed, out of play
+bool Pointing() { return Active() && !overlay::g_open.load() && !InPlay(); }
+
+bool PointerShown() {
+    return Pointing() && clock::now() - clock::time_point(clock::duration(g_pointer_seen.load())) < kPointerHide;
+}
 
 // the overlay open from a controller, the mouse not moved since: the cursor stays hidden
 bool PadOverlay() { return overlay::g_open.load() && overlay::g_by_pad.load(); }
@@ -289,6 +330,7 @@ void Capture(HWND hwnd, bool on) {
     if (on != g_captured) {
         ShowCursor(on ? FALSE : TRUE);
         g_captured = on;
+        if (on) g_swallow = true;
     }
     if (!on) {
         ClipCursor(nullptr);
@@ -301,6 +343,53 @@ void Capture(HWND hwnd, bool on) {
     RECT centre{x, y, x + 1, y + 1};
     RECT now;
     if (!GetClipCursor(&now) || !EqualRect(&now, &centre)) ClipCursor(&centre);
+}
+
+// a point in the client area on the menus' stage
+void StagePoint(HWND hwnd, POINT p) {
+    RECT r;
+    GetClientRect(hwnd, &r);
+    float w = float(r.right - r.left), h = float(r.bottom - r.top);
+    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float vw = std::min(w, h * aspect), vh = vw / aspect;
+    if (vw <= 0.0f || vh <= 0.0f) return;
+    g_stage_x = kStageLeft + (float(p.x) - (w - vw) / 2) / vw * kStageShown;
+    g_stage_y = (float(p.y) - (h - vh) / 2) / vh * kStageHeight;
+}
+
+// the cursor over the client area, false when it is elsewhere
+bool CursorInClient(HWND hwnd, POINT& p) {
+    if (!GetCursorPos(&p) || WindowFromPoint(p) != hwnd) return false;
+    ScreenToClient(hwnd, &p);
+    RECT r;
+    GetClientRect(hwnd, &r);
+    return PtInRect(&r, p) != FALSE;
+}
+
+// the cursor over the game as it is now: held and hidden in play, the arrow while the pointer shows or the mouse is
+// let go, nothing otherwise
+HCURSOR GameCursor() {
+    if (Captured() || PadOverlay() || (Pointing() && !PointerShown())) return nullptr;
+    return LoadCursorW(nullptr, IDC_ARROW);
+}
+
+// the menus' pointer, from the timer and the mouse's messages: the mouse held in play or let go out of it; on becoming
+// the pointer, where the cursor is now counts as no motion (the window letting it go at its centre)
+void Pointer(HWND hwnd) {
+    bool pointing = Pointing();
+    if (pointing && !g_pointing) {
+        POINT p{};
+        if (CursorInClient(hwnd, p)) g_pointer_at = p;
+        g_pointer_seen = 0;
+    }
+    g_pointing = pointing;
+    if (!pointing) EndDrag();
+    // out of play the cursor is free anyway: Esc's letting it go (which paused) ends, the mouse held again in play
+    if (pointing) g_released = false;
+    // let go only once: the clip is anybody's while another window is active
+    bool held = Captured() || (PadOverlay() && Active());
+    if (held || held != g_captured) Capture(hwnd, held);
+    if (POINT p; Active() && CursorInClient(hwnd, p)) SetCursor(GameCursor());
 }
 
 int16_t Axis(float v) { return int16_t(std::clamp(v, -32768.0f, 32767.0f)); }
@@ -590,7 +679,8 @@ void Window(void* hwnd) {
         std::lock_guard lock(app::UiLock());
         if (ImGui::GetCurrentContext()) ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
-    if (Active()) Capture(static_cast<HWND>(hwnd), true);
+    SetTimer(static_cast<HWND>(hwnd), kPointerTimer, kPointerTimerMs, nullptr);
+    Pointer(static_cast<HWND>(hwnd));
 }
 
 bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
@@ -622,36 +712,78 @@ bool Message(void* hwnd_ptr, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* 
                 (GET_WHEEL_DELTA_WPARAM(wp) > 0 ? g_wheel_up : g_wheel_down) = Ticks(clock::now());
             break;
         case WM_KEYDOWN:
-            if (wp == VK_ESCAPE && Windowed() && !(lp & (1 << 30))) {
+            if (wp == VK_ESCAPE && Windowed() && InPlay() && !(lp & (1 << 30))) {
                 g_released = true;
                 Capture(hwnd, false);
                 SetCursor(LoadCursorW(nullptr, IDC_ARROW));
             }
             break;
+        case WM_MOUSEMOVE:
+            // the menus' pointer moved: shown, and on the stage
+            if (Pointing()) {
+                if (!g_pointing) Pointer(hwnd);
+                POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                if (p.x == g_pointer_at.x && p.y == g_pointer_at.y) break;
+                g_pointer_at = p;
+                StagePoint(hwnd, p);
+                int64_t now = Ticks(clock::now());
+                g_pointer_seen = now;
+                if (!(wp & MK_LBUTTON)) EndDrag();
+                (g_dragging ? g_pointer_dragged : g_pointer_moved) = now;
+                g_keyboard = true;
+                SetCursor(GameCursor());
+            }
+            break;
         case WM_LBUTTONDOWN:
         case WM_RBUTTONDOWN:
         case WM_MBUTTONDOWN:
+            // the menus' pointer: the left button clicks where the cursor shows, the right is B
+            if (Pointing()) {
+                clock::time_point now = clock::now();
+                bool activation = now - clock::time_point(clock::duration(g_activated.load())) < kActivationClick;
+                if (msg == WM_LBUTTONDOWN && !activation) {
+                    StagePoint(hwnd, POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+                    g_pointer_clicked = Ticks(now);
+                    g_dragging = true;
+                    SetCapture(hwnd);
+                }
+                if (msg == WM_RBUTTONDOWN && !activation) g_pointer_b = Ticks(now);
+                if (msg == WM_LBUTTONDOWN && !activation && g_movie.load()) g_pointer_start = Ticks(now);
+                g_pointer_seen = Ticks(now);
+                g_keyboard = true;
+                SetCursor(GameCursor());
+                break;
+            }
             if (g_released.load() && Active() && !overlay::g_open.load()) {
                 g_released = false;
                 g_swallow = true;
                 Capture(hwnd, true);
             }
             break;
+        case WM_LBUTTONUP:
+        case WM_CAPTURECHANGED:
+            if (msg == WM_LBUTTONUP || reinterpret_cast<HWND>(lp) != hwnd) EndDrag();
+            break;
         case WM_SETCURSOR:
-            // the window's class has no cursor: over the game the arrow while the mouse is let go
+            // the window's class has no cursor: over the game the arrow while the mouse is let go or the pointer shows
             if (LOWORD(lp) == HTCLIENT && Active()) {
-                SetCursor(Captured() || PadOverlay() ? nullptr : LoadCursorW(nullptr, IDC_ARROW));
+                SetCursor(GameCursor());
                 *result = TRUE;
                 return true;
             }
             break;
         case WM_ACTIVATE:
-            Capture(hwnd, LOWORD(wp) != WA_INACTIVE && !g_released.load() && !overlay::g_open.load());
+            if (LOWORD(wp) != WA_INACTIVE) g_activated = Ticks(clock::now());
+            Capture(hwnd, LOWORD(wp) != WA_INACTIVE && !g_released.load() && !overlay::g_open.load() && InPlay());
             break;
+        case WM_TIMER:
+            if (wp != kPointerTimer) break;
+            Pointer(hwnd);
+            *result = 0;
+            return true;
         case kRefresh:
             // held and hidden while the overlay is a controller's
-            Capture(hwnd, Captured() || (PadOverlay() && Active()));
-            if (!Captured() && !PadOverlay()) SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            Pointer(hwnd);
             // the click that closed the overlay presses nothing in the game
             g_swallow = true;
             *result = 0;
@@ -672,7 +804,43 @@ void SetPlay(bool scoped) {
 
 void KeepPlay() { g_play_until = Ticks(clock::now() + kPlayHold); }
 
-uint32_t MenuKeys() { return g_menu_keys.load(); }
+uint32_t MenuKeys() {
+    uint32_t keys = g_menu_keys.load();
+    // the right button: B while it is held, and for a moment at least
+    if (int64_t b = g_pointer_b.load()) {
+        bool held = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) ||
+                    clock::now() - clock::time_point(clock::duration(b)) < kPointerB;
+        if (held) keys |= kMenuB;
+        else g_pointer_b.compare_exchange_strong(b, 0);
+    }
+    return keys;
+}
+
+bool MenuPointer(float& x, float& y) {
+    if (!Pointing()) return false;
+    x = g_stage_x.load();
+    y = g_stage_y.load();
+    return true;
+}
+
+void SetMovie(bool playing) {
+    g_movie = playing;
+    // the click that skipped it presses nothing after
+    if (!playing) g_pointer_clicked = 0;
+}
+
+MenuMouse TakeMenuMouse() {
+    clock::time_point now = clock::now();
+    auto take = [&](std::atomic<int64_t>& at) {
+        int64_t t = at.exchange(0);
+        return t && now - clock::time_point(clock::duration(t)) < kPointerEvent;
+    };
+    MenuMouse m;
+    m.moved = take(g_pointer_moved);
+    m.clicked = take(g_pointer_clicked);
+    m.dragged = take(g_pointer_dragged);
+    return m;
+}
 
 void Refresh() {
     if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kRefresh, 0, 0);
@@ -828,6 +996,8 @@ void PadInput(int port, input::Pad& pad) {
         if (keys) g_keyboard = true;
     }
 
+    // a click while a movie plays: start
+    if (now - clock::time_point(clock::duration(g_pointer_start.load())) < kPointerB) held[kStart] = true;
     // digital buttons: d-pad up/down/left/right, start, back, left thumb, right thumb
     constexpr Target kDigital[] = {kDpadUp, kDpadDown, kDpadLeft, kDpadRight, kStart, kBack, kLeftThumb, kRightThumb};
     for (int i = 0; i < 8; i++)

@@ -4,7 +4,9 @@
 // - the script command sub_0017AEC0, with sub_00179100 on a byte its second argument sets: the EA and THX logos at
 //   boot are played with it clear;
 // - a mission's intro (sub_0007F2F0), with sub_0007F260 on the byte at 0x36EE80, which nothing sets.
-// Here the byte is set, so they all play to the end only when not skipped.
+// Here the byte is set, so they all play to the end only when not skipped. And while one plays a click is start too
+// (common/pc_input.h SetMovie).
+#include "common/pc_input.h"
 #include "xdk/hle.h"
 
 namespace {
@@ -26,4 +28,12 @@ X86_EXTERN_FUNC(__imp__sub_0007F260);
 X86_FUNC(sub_0007F260) {
     Skippable(base, ctx.esp);
     __imp__sub_0007F260(ctx, base);
+}
+
+// a movie playing, to its end or skipped
+X86_EXTERN_FUNC(__imp__sub_00137260);
+X86_FUNC(sub_00137260) {
+    pc_input::SetMovie(true);
+    __imp__sub_00137260(ctx, base);
+    pc_input::SetMovie(false);
 }

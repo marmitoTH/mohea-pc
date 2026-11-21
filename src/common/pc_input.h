@@ -57,7 +57,8 @@ void ResetBindings();
 // controller; and an action's first key, as the overlay shows it ("" for none)
 bool UsingKeyboard();
 std::string FirstKey(int action);
-// in play, where a controller is remapped (SetPlay lately), not in a menu or a tutorial's box
+// in play, where a controller is remapped (SetPlay lately), not in a menu or a tutorial's box; the mouse is held and
+// hidden for the view then, the window's cursor out of it (MenuPointer)
 bool InPlay();
 
 // a key for the overlay, UI thread: once every key is up, the next one or mouse button or wheel notch; Esc or a
@@ -76,10 +77,23 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
 void SetPlay(bool scoped);
 // the game frozen in play (game/frame_rate.cpp): the player control stands still, play goes on as it was
 void KeepPlay();
-// the keys the menus take on their own (game/menus.cpp), as the menus' buttons: the move keys the d-pad's, crouch's X.
-// Play never sees them, so they move through a menu and only move in play
-constexpr uint32_t kMenuUp = 0x1, kMenuDown = 0x2, kMenuLeft = 0x4, kMenuRight = 0x8, kMenuX = 0x20;
+// the keys the menus take on their own (game/menus.cpp), as the menus' buttons: the move keys the d-pad's, crouch's X,
+// the right mouse button B (below). Play never sees them, so they move through a menu and only move in play
+constexpr uint32_t kMenuUp = 0x1, kMenuDown = 0x2, kMenuLeft = 0x4, kMenuRight = 0x8, kMenuX = 0x20, kMenuB = 0x80;
 uint32_t MenuKeys();
+
+// The mouse out of play (the menus, the pause menu, a dialog, a movie: InPlay false) is the window's cursor, shown as
+// it moves and hidden after a few seconds still; in the menus hovering a control focuses it, a click presses it (or
+// sets it: game/menus.cpp), a drag moves a slider, and the right button is B. MenuPointer, any thread: the cursor on
+// the menus' 854 x 480 stage, false in play. TakeMenuMouse, the game's thread: what it did since the last call, moved,
+// clicked and moved with the left button held from a click (dragged), within the last moments
+bool MenuPointer(float& x, float& y);
+// a movie playing (game/movies.cpp), the game's thread: a click meanwhile holds start a moment, which skips it
+void SetMovie(bool playing);
+struct MenuMouse {
+    bool moved = false, clicked = false, dragged = false;
+};
+MenuMouse TakeMenuMouse();
 
 // the overlay (common/overlay.h) opened or closed, any thread: the window takes the mouse or lets it go
 void Refresh();
