@@ -4,6 +4,10 @@
 // left stick as a lean while the lean bit is set: the strafe as the lean amount (+0x430, +0x434, the vtable's +0x150),
 // and the strafe and forward zeroed, so the player stands still. Here the lean bit is off for the move, which walks and
 // strafes instead, at half the stick (the game's own factor for the lean, 0x376188), as aiming in modern games slows.
+//
+// Half only while the aiming bit is set too. A reload leaves the sights (its state's entry, sub_000A3430, clears the
+// aiming bit and the holder's +0x115B, without which the trigger sets the lean bit alone), so the player walks at the
+// stick then, as from the hip, and slows again once back in the sights.
 #include "common/options.h"
 #include "xdk/hle.h"
 
@@ -23,9 +27,11 @@ X86_FUNC(sub_0011AC60) {
         __imp__sub_0011AC60(ctx, base);
         return;
     }
-    float* stick = reinterpret_cast<float*>(base + ctx.esp + 4);
-    stick[0] *= kAimSpeed;
-    stick[1] *= kAimSpeed;
+    if (flags & kAiming) {
+        float* stick = reinterpret_cast<float*>(base + ctx.esp + 4);
+        stick[0] *= kAimSpeed;
+        stick[1] *= kAimSpeed;
+    }
     uint32_t player = ctx.ecx;
     flags &= ~kLean;
     __imp__sub_0011AC60(ctx, base);
