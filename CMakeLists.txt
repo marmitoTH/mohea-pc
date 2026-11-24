@@ -59,6 +59,9 @@ endif()
 # the SDK's input polls SDL from the game's threads, which SDL's debug assertions stop at (SDL_PumpEvents off the main
 # thread): every build gets SDL's release checks, as a release build always has
 set(SDL_ASSERTIONS release CACHE STRING "" FORCE)
+# SDL's configure finds itoa in the UCRT's headers, but the exe links with -nostdlib and without oldnames.lib, where
+# the name lives (the UCRT has only _itoa): SDL_itoa is left undefined. SDL then uses its own.
+set(LIBC_HAS_ITOA 0 CACHE INTERNAL "" FORCE)
 
 include(${SDK}/cmake/XbeRecomp.cmake)
 
