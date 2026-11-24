@@ -67,8 +67,8 @@ enum Op : uint8_t {
     kGetVar = 0x1C, kSetVar = 0x1D, kDefineLocal = 0x3C, kReturn = 0x3E, kNew = 0x40, kDefineLocal2 = 0x41,
     kAdd2 = 0x47, kLess2 = 0x48, kEquals2 = 0x49, kToNumber = 0x4A, kToString = 0x4B, kPushDuplicate = 0x4C,
     kGetMember = 0x4E, kSetMember = 0x4F, kIncrement = 0x50, kDecrement = 0x51, kCallMethod = 0x52,
-    kStrictEquals = 0x66, kGreater = 0x67, kStoreRegister = 0x87, kConstantPool = 0x88, kPush = 0x96, kJump = 0x99,
-    kDefineFunction = 0x9B, kIf = 0x9D
+    kStrictEquals = 0x66, kGreater = 0x67, kGetUrl = 0x83, kStoreRegister = 0x87, kConstantPool = 0x88, kPush = 0x96,
+    kJump = 0x99, kDefineFunction = 0x9B, kIf = 0x9D
 };
 
 struct Writer {
@@ -114,6 +114,13 @@ struct Writer {
         code.push_back(kStoreRegister);
         Align();
         code.insert(code.end(), {uint8_t(reg), 0, 0, 0});
+    }
+    // GetURL, its URL and target the .apt's text at those offsets
+    void GetUrl(uint32_t url, uint32_t target) {
+        code.push_back(kGetUrl);
+        Align();
+        for (uint32_t v : {url, target})
+            for (int i = 0; i < 4; i++) code.push_back(uint8_t(v >> (8 * i)));
     }
     // a branch, its offset set by Land
     size_t Branch(uint8_t op) {

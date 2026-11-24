@@ -38,7 +38,7 @@ void OldArrays(uint8_t* base, uint32_t apt, Code c, std::vector<std::pair<uint32
         uint32_t args = (a + 4) & ~3u;
         bool values = op == kPush || op == kConstantPool;
         if (values) arrays.emplace_back(U32(base, args), U32(base, args + 4));
-        a = args + (values ? 8 : 4);
+        a = args + (values || op == kGetUrl ? 8 : 4);
     }
 }
 

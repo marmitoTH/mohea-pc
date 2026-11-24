@@ -37,6 +37,7 @@
 // the registers (the movie has no entries for their values: four for traces no longer made are made them).
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <iterator>
 #include <cstdlib>
@@ -370,6 +371,130 @@ void WriteNextButton(Writer& w) {
     c.P({kYes}), c.Op(kReturn);
 }
 
+// The virtual keyboard (cafela/cafela_vkeybrd.big, stdVKeyboardClass: the profile's name, scrns/vkeybrd.apt) is no
+// menu of the kind above: its getKey() and nextButton() of its own know the d-pad and A alone. Written anew with the
+// mouse: on a move, a drag or a click the key under the cursor (found here, KeyAt below: the movie's code has no room
+// for it) takes the focus as on the d-pad (its sound and all), and a click presses it (executeCommand(), as A does).
+// cafela_vkeybrd.apt: the class's initaction block, getKey()'s and nextButton()'s bodies, nextButton()'s GetURL's text
+constexpr uint32_t kKeyboardBlock = 0x2150, kKeyboardGetKey = 0x26FC, kKeyboardNext = 0x2A84;
+constexpr uint32_t kPlaySound = 0x442C, kNavigateSound = 0x4440;  // "FSCommand:playSound", "MM_Navigate6"
+
+// getKey(): the mouse's codes to nextButton(4), true for a key under the cursor, then A for a click; the rest as it
+// was, its traces and the other consoles' buttons left out
+void WriteKeyboardGetKey(Writer& w) {
+    w.merge = true;
+    Asm c{w};
+    auto Call = [&](int args, const char* method) {
+        c.P({args, "this"}), c.Op(kGetVar), c.P({method}), c.Op(kCallMethod);
+    };
+    // var myKeyCode = Key.getCode(); var c = myKeyCode - Number("602");
+    c.P({"myKeyCode", 0, "Key"}), c.Op(kGetVar), c.P({"getCode"}), c.Op(kCallMethod), c.Op(kDefineLocal);
+    c.P({"c", "myKeyCode"}), c.Op(kGetVar), c.P({"602"}), c.Op(kToNumber), c.Op(kSub), c.Op(kDefineLocal);
+    // if (c > 0) { if (this.nextButton(4) && c == 2) this.executeCommand(); return false; }
+    c.P({"c"}), c.Op(kGetVar), c.P({0}), c.Op(kGreater), c.Op(kNot);
+    size_t keys = w.Branch(kIf);
+    c.P({4}), Call(1, "nextButton"), c.Op(kNot);
+    size_t none = w.Branch(kIf);
+    c.Is("c", 2), c.Op(kNot);
+    size_t moved = w.Branch(kIf);
+    Call(0, "executeCommand"), c.Op(kPop);
+    w.Land(none), w.Land(moved), c.P({kNo}), c.Op(kReturn);
+    // if (!this.active) return false;
+    w.Land(keys), c.Get("this", "active");
+    size_t active = w.Branch(kIf);
+    c.P({kNo}), c.Op(kReturn), w.Land(active);
+    // _global.KEYCODE[myKeyCode], against "dUp", "dDown", "dLeft", "dRight" and "xboxA"
+    c.Get("_global", "KEYCODE"), c.P({"myKeyCode"}), c.Op(kGetVar), c.Op(kGetMember);
+    size_t to[5];
+    const char* names[5] = {"dUp", "dDown", "dLeft", "dRight", "xboxA"};
+    for (int i = 0; i < 5; i++) c.Op(kPushDuplicate), c.P({names[i]}), c.Op(kStrictEquals), to[i] = w.Branch(kIf);
+    c.Op(kPop);
+    std::vector<size_t> selection{w.Branch(kJump)};
+    // the d-pad: this.nextButton(0 up, 1 down, 2 left, 3 right);
+    std::vector<size_t> next;
+    for (int i = 0; i < 4; i++) {
+        w.Land(to[i]), c.Op(kPop), c.P({i});
+        if (i < 3) next.push_back(w.Branch(kJump));
+    }
+    for (size_t b : next) w.Land(b);
+    Call(1, "nextButton"), c.Op(kPop), selection.push_back(w.Branch(kJump));
+    // A: this.executeCommand();
+    w.Land(to[4]), c.Op(kPop), Call(0, "executeCommand"), c.Op(kPop);
+    // return this.get_selection();
+    for (size_t b : selection) w.Land(b);
+    Call(0, "get_selection"), c.Op(kReturn);
+}
+
+// nextButton(upOrDown): the d-pad (0 up, 1 down, 2 left, 3 right) as it was, its traces left out (and its way back
+// to the last focus, for a neighbour -1, which no key has), and the mouse (4): the key under the cursor (extern's
+// "_vk", its name, MenuExtern) focused, false for none
+void WriteKeyboardNextButton(Writer& w) {
+    w.merge = true;
+    Asm c{w};
+    auto Var = [&](const char* name) { c.P({name}), c.Op(kGetVar); };
+    std::vector<size_t> nothing;  // to return false
+    // var next_but = upOrDown > 3 ? extern._vk : this.focus.neighbors_param[upOrDown];
+    Var("upOrDown"), c.P({3}), c.Op(kGreater), c.Op(kNot);
+    size_t keys = w.Branch(kIf);
+    c.P({"next_but"}), c.Get("extern", "_vk"), c.Op(kDefineLocal);
+    size_t named = w.Branch(kJump);
+    w.Land(keys), c.P({"next_but"}), c.Get("this", "focus"), c.P({"neighbors_param"}), c.Op(kGetMember);
+    Var("upOrDown"), c.Op(kGetMember), c.Op(kDefineLocal);
+    // if (!this.active || next_but == "") return false;  (the cursor read first: the mouse's code taken; "" for no
+    // key. Not !next_but: a name is true as a number is, "1_key" and not "A_key")
+    w.Land(named), c.Get("this", "active"), c.Op(kNot), Var("next_but"), c.P({""}), c.Op(kEquals2), c.Op(kOr);
+    nothing.push_back(w.Branch(kIf));
+    // next_but = eval(this.control_path_param + next_but); if (next_but == undefined) return false;
+    c.P({"next_but"}), c.Get("this", "control_path_param"), Var("next_but"), c.Op(kAdd2), c.Op(kGetVar), c.Op(kSetVar);
+    Var("next_but"), c.P({Undefined{}}), c.Op(kEquals2), nothing.push_back(w.Branch(kIf));
+    // if (next_but != this.focus) { this.lastFocus = this.focus.getSelf(); this.lastFocus.normal();
+    // getURL("FSCommand:playSound", "MM_Navigate6"); this.focus = next_but; this.focus.highlight(); } return true;
+    Var("next_but"), c.Get("this", "focus"), c.Op(kEquals2);
+    size_t same = w.Branch(kIf);
+    Var("this"), c.P({"lastFocus", 0}), c.Get("this", "focus"), c.P({"getSelf"}), c.Op(kCallMethod), c.Op(kSetMember);
+    c.P({0}), c.Get("this", "lastFocus"), c.P({"normal"}), c.Op(kCallMethod), c.Op(kPop);
+    w.GetUrl(kPlaySound, kNavigateSound);
+    Var("this"), c.P({"focus"}), Var("next_but"), c.Op(kSetMember);
+    c.P({0}), c.Get("this", "focus"), c.P({"highlight"}), c.Op(kCallMethod), c.Op(kPop);
+    w.Land(same), c.P({kYes}), c.Op(kReturn);
+    for (size_t b : nothing) w.Land(b);
+    c.P({kNo}), c.Op(kReturn);
+}
+
+// The keyboard's keys (scrns/vkeybrd.apt, their places on the stage): each one's cell, half the way to the next, the
+// wide ones' (OK, clear, the bars) as wide as they are
+constexpr float kKeyWidth = 41, kKeyHeight = 42;
+struct Key {
+    const char* name;
+    float x, y;
+    float width = kKeyWidth, height = kKeyHeight;
+};
+constexpr Key kKeys[] = {
+    {"1_key", 249.2f, 183.8f}, {"2_key", 290.1f, 183.8f}, {"3_key", 331.1f, 183.8f}, {"4_key", 372.0f, 183.8f},
+    {"5_key", 413.0f, 183.8f}, {"6_key", 454.0f, 183.8f}, {"7_key", 494.9f, 183.8f}, {"8_key", 535.8f, 183.8f},
+    {"9_key", 576.8f, 183.8f}, {"0_key", 617.8f, 183.8f}, {"A_key", 239.4f, 225.4f}, {"B_key", 280.5f, 225.4f},
+    {"C_key", 321.5f, 225.4f}, {"D_key", 362.5f, 225.4f}, {"E_key", 403.5f, 225.4f}, {"F_key", 444.5f, 225.4f},
+    {"G_key", 485.5f, 225.4f}, {"H_key", 526.5f, 225.4f}, {"I_key", 567.5f, 225.4f}, {"J_key", 608.5f, 225.4f},
+    {"OK_key", 221.1f, 266.6f, 53}, {"K_key", 272.0f, 268.1f}, {"L_key", 313.0f, 268.1f}, {"M_key", 354.0f, 268.1f},
+    {"N_key", 394.9f, 268.1f}, {"O_key", 435.9f, 268.1f}, {"P_key", 476.8f, 268.1f}, {"Q_key", 517.8f, 268.1f},
+    {"R_key", 558.7f, 268.1f}, {"S_key", 599.7f, 268.1f}, {"T_key", 640.6f, 268.1f}, {"U_key", 210.4f, 310.9f},
+    {"V_key", 251.4f, 310.9f}, {"W_key", 292.3f, 310.9f}, {"X_key", 333.2f, 310.9f}, {"Y_key", 374.2f, 310.9f},
+    {"Z_key", 415.1f, 310.9f}, {"US_key", 456.1f, 310.9f}, {"HYP_key", 497.0f, 310.9f}, {"Period_key", 538.0f, 310.9f},
+    {"AT_key", 579.0f, 310.9f}, {"Shift_key", 634.8f, 311.3f, 62},
+    {"spaceBar", 287.2f, 349.9f, 128, 40}, {"BSBar", 429.0f, 351.9f, 128, 40}, {"ACC_Bar", 568.8f, 350.9f, 128, 40}};
+
+// the key under the cursor, of those whose cells hold it the nearest, "" for none
+const char* KeyAt(float x, float y) {
+    const char* key = "";
+    float nearest = 0;
+    for (const Key& k : kKeys) {
+        float dx = x - k.x, dy = y - k.y, d = dx * dx + dy * dy;
+        if (std::fabs(dx) * 2 > k.width || std::fabs(dy) * 2 > k.height || (*key && d >= nearest)) continue;
+        key = k.name, nearest = d;
+    }
+    return key;
+}
+
 // The boxes for controls whose hit test the cursor finds too small, on the stage (extern's "_hit"): the campaigns on
 // the map (scrns/title.apt's campmenu), each one's name and its dot (the name's text left, right or centre aligned in
 // its 467 wide text box, the box here about as wide as the name shows)
@@ -487,7 +612,17 @@ std::vector<apt::Rewrite> apt::MenuRewrites() {
                         {" state for this control = ", 2},
                         {"lock button ", 3}}};
     };
-    return {menu("menu", 0, 0x8465B7EF), menu("menu in play", kMainLite, 0xF3616C5D)};
+    // the keyboard's names, over text no longer used: a console's button, and a trace
+    Rewrite keyboard{"keyboard",
+                     {kKeyboardBlock},
+                     0xC7592CE5,
+                     {{"ps2X", "_vk"},
+                      {"VirtualKeyboard::nextButton() current focus is on ", "extern"},
+                      {"VKB calling normal() on this item: ", "602"}},
+                     {{{kKeyboardGetKey, 0x211, false}, WriteKeyboardGetKey},
+                      {{kKeyboardNext, 0x23F, false}, WriteKeyboardNextButton}},
+                     {}};
+    return {menu("menu", 0, 0x8465B7EF), menu("menu in play", kMainLite, 0xF3616C5D), keyboard};
 }
 
 bool apt::MenuExtern(const char* name, std::string& value) {
@@ -502,6 +637,15 @@ bool apt::MenuExtern(const char* name, std::string& value) {
             std::fill(std::begin(g_choices), std::end(g_choices), Prompt{});
         }
         value = std::to_string(name[2] == 'x' ? x : y);
+        return true;
+    }
+    // the keyboard's key under the cursor, its name ("" for none): the mouse's code taken
+    if (!std::strcmp(name, "_vk")) {
+        {
+            std::lock_guard lock(g_presses_lock);
+            g_mouse_waiting = false;
+        }
+        value = KeyAt(x, y);
         return true;
     }
     // "_hit" and a control's name: "1" with the cursor in its box, "0" out of it, "" for no box
@@ -633,3 +777,4 @@ X86_FUNC(sub_001779D0) {
     }
     send(code);
 }
+
